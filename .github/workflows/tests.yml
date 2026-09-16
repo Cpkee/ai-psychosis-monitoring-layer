@@ -1,0 +1,56 @@
+name: Tests
+
+# Two jobs, deliberately separated.
+#
+# "governance" runs on a bare interpreter with no dependencies and no database.
+# It proves Gate A (architecture.md section 18): development and tuning
+# workflows reject Psychosis-Bench. It must never grow a dependency.
+#
+# "contract" runs the repository contract suite against real PostgreSQL, so the
+# in-memory adapter cannot drift from SQL behaviour (section 17).
+#
+# No assertion logic lives in this file. If a boundary is crossed, a test fails.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Governance and seal tests (no dependencies, no database)
+        run: python3 -m unittest tests.test_dataset_use_gate tests.test_benchmark_seal -v
+
+  contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: apml
+          POSTGRES_PASSWORD: apml
+          POSTGRES_DB: apml
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U apml -d apml"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://apml:apml@localhost:5432/apml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Full suite, including PostgreSQL contract tests
+        run: python3 -m unittest discover -s tests -t . -v

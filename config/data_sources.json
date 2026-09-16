@@ -1,0 +1,110 @@
+{
+  "config_version": "data_sources_v0.1",
+  "description": "Data Source Registry definitions (architecture.md sections 6.1, 7.2, 8). Permissions here are executable, not documentation: the Dataset Use Gate reads this file.",
+  "sources": [
+    {
+      "source_name": "psychosis-bench",
+      "source_type": "external_benchmark",
+      "version": "1.0",
+      "relative_path": "data/test_cases.json",
+      "manifest_relative_path": "data/sealed/psychosis_bench_manifest.json",
+      "checksum_algorithm": "SHA-256",
+      "provenance": "Psychosis-Bench, https://github.com/w-is-h/psychosis-bench; The Psychogenic Machine, https://arxiv.org/abs/2509.10970",
+      "authority_status": "external_benchmark_stimulus",
+      "sealed": true,
+      "retention_class": "sealed_indefinite",
+      "access_policy_version": "access_policy_v0.1",
+      "permitted_uses": [
+        "final_evaluation"
+      ],
+      "prohibited_uses": [
+        "development",
+        "training",
+        "prompt_tuning",
+        "rubric_tuning",
+        "rubric_validation",
+        "model_selection",
+        "domain_reference_labels",
+        "transformer_target_labels",
+        "domain_performance_evidence",
+        "infrastructure_format_test",
+        "internal_validation"
+      ],
+      "notes": "16 cases, 12 prompts per case, 192 prompts. All final-evaluation-only. Requires FINAL_EVALUATION execution mode and a complete FinalEvaluationSpecification. No runner exists, so no load can currently succeed."
+    },
+    {
+      "source_name": "mindeval-human-annotations",
+      "source_type": "imported_external_annotations",
+      "version": "imported-2026-09-13",
+      "relative_path": "data/human_annotations.jsonl",
+      "checksum_algorithm": "SHA-256",
+      "provenance": "MindEval-derived; imported in commit 5cb2c40. 60 conversations, 4 independent annotator responses per criterion, 3 companion models.",
+      "authority_status": "reviewer_opinion",
+      "sealed": false,
+      "retention_class": "imported_read_only",
+      "permitted_uses": [
+        "infrastructure_format_test"
+      ],
+      "prohibited_uses": [
+        "domain_reference_labels",
+        "rubric_validation",
+        "rubric_tuning",
+        "transformer_target_labels",
+        "domain_performance_evidence",
+        "training",
+        "model_selection",
+        "final_evaluation"
+      ],
+      "notes": "Depression/anxiety check-ins, not this project's domain. Criteria undefined in this repository: criterion_5 absent, criterion11 misnamed, values on a 0-6 scale. Never convert to the provisional project scale.",
+      "checksum": "81ce4ce308bacba474045654c68a25b297adfea1c6f3f70a9d00c5abe22296fe"
+    },
+    {
+      "source_name": "mindeval-human-user-turns",
+      "source_type": "imported_external_personas",
+      "version": "imported-2026-09-13",
+      "relative_path": "data/human_user_turns.jsonl",
+      "checksum_algorithm": "SHA-256",
+      "provenance": "MindEval-derived; imported in commit 5cb2c40. 432 records.",
+      "authority_status": "generation_input",
+      "sealed": false,
+      "retention_class": "imported_read_only",
+      "permitted_uses": [
+        "development",
+        "infrastructure_format_test"
+      ],
+      "prohibited_uses": [
+        "domain_reference_labels",
+        "rubric_validation",
+        "transformer_target_labels",
+        "domain_performance_evidence",
+        "final_evaluation"
+      ],
+      "notes": "Persona generation input only.",
+      "checksum": "e3db007e865efd7d3f6ba69b59b57295898f1a0ae60c882942e6c5cfe31301ef"
+    },
+    {
+      "source_name": "mindeval-profiles",
+      "source_type": "imported_external_personas",
+      "version": "imported-2026-09-13",
+      "relative_path": "data/profiles.jsonl",
+      "checksum_algorithm": "SHA-256",
+      "provenance": "MindEval-derived; imported in commit 5cb2c40. 50 records.",
+      "authority_status": "generation_input",
+      "sealed": false,
+      "retention_class": "imported_read_only",
+      "permitted_uses": [
+        "development",
+        "infrastructure_format_test"
+      ],
+      "prohibited_uses": [
+        "domain_reference_labels",
+        "rubric_validation",
+        "transformer_target_labels",
+        "domain_performance_evidence",
+        "final_evaluation"
+      ],
+      "notes": "Persona generation input only.",
+      "checksum": "48bf913b31b98ba5909d42737fe144f5ade99fa74db04b7f850b076e05dbb171"
+    }
+  ]
+}

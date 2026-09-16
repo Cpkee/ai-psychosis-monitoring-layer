@@ -1,8 +1,58 @@
-Use the following as the top-level README. It makes the project’s purpose, boundaries and deliverables visible before the technical details.
-
 # AI Psychosis Monitoring Layer
 
 A research prototype for evaluating whether an AI companion safely responds to conversational patterns involving unusual beliefs, AI dependency and potential harm under the umbrella of AI Psychosis.
+
+## Architecture
+
+[`architecture.md`](architecture.md) is the **implementation source of truth** for the platform: module seams, interfaces, invariants, data records, delivery phases and gates. Where it conflicts with the foundations pack below, the architecture wins.
+
+## Project foundations pack
+
+The canonical definitions, data contracts and validation workflow live in [`docs/foundations/`](docs/foundations/). This README remains the project overview; the foundations pack is the source of truth for the details below.
+
+| Document | Canonical for |
+|---|---|
+| [PROJECT_SCOPE.md](docs/foundations/PROJECT_SCOPE.md) | MVP boundaries; analytical vs functional vs non-functional requirements |
+| [ANALYTICAL_TAXONOMY.md](docs/foundations/ANALYTICAL_TAXONOMY.md) | Every user signal, AI-behaviour metric, context category and temporal concept |
+| [RUBRIC_v0.1.md](docs/foundations/RUBRIC_v0.1.md) | LLM Judge scoring framework — **draft and unvalidated** |
+| [ANNOTATION_GUIDE.md](docs/foundations/ANNOTATION_GUIDE.md) | Human annotation, disagreement and adjudication |
+| [DATA_SOURCES_AND_CONTRACTS.md](docs/foundations/DATA_SOURCES_AND_CONTRACTS.md) | Data-source register, contracts, lifecycle, audit chain |
+| [RUBRIC_VALIDATION.md](docs/foundations/RUBRIC_VALIDATION.md) | Rubric change control and the approval gate |
+| [IMPLEMENTATION_FOUNDATION.md](docs/foundations/IMPLEMENTATION_FOUNDATION.md) | The first end-to-end tracer bullet and its acceptance tests |
+| [OPEN_DECISIONS.md](docs/foundations/OPEN_DECISIONS.md) | Unresolved questions awaiting stakeholder or clinical review |
+| [FOUNDATION_READINESS.md](docs/foundations/FOUNDATION_READINESS.md) | What is ready, partially ready, or blocked; the agreed priority sequence |
+| [BENCHMARK_SEAL.md](docs/foundations/BENCHMARK_SEAL.md) | Psychosis-Bench provenance, access record and controls |
+| [THEME_VOCABULARY_MAPPING.md](docs/foundations/THEME_VOCABULARY_MAPPING.md) | The two theme vocabularies, held separate; mappings UNRESOLVED |
+| [DRAFT_SENSITIVE_CONTENT_POLICY.md](docs/foundations/DRAFT_SENSITIVE_CONTENT_POLICY.md) | Draft for approval — blocks the annotation pilot |
+| [DRAFT_ANNOTATOR_QUALIFICATIONS.md](docs/foundations/DRAFT_ANNOTATOR_QUALIFICATIONS.md) | Draft for approval — blocks reference labels |
+
+### Current status
+
+**The project is not implementation-ready for evaluation reporting. It is ready for a bounded tracer-bullet implementation using synthetic fixtures and provisional, auditable contracts.**
+
+### Data boundaries
+
+[`data/test_cases.json`](data/test_cases.json) is the **sealed** Psychosis-Bench set: all 192 prompts are final-evaluation-only and must never enter development, prompt construction, rubric tuning, fixtures or routine tests. The seal is enforced in code, not by convention:
+
+```bash
+# Seal and governance tests: bare interpreter, no dependencies, no database.
+python3 -m unittest tests.test_dataset_use_gate tests.test_benchmark_seal
+```
+
+## Running the full suite
+
+The repository contract tests need PostgreSQL. Everything else does not, and never will:
+
+```bash
+docker compose up -d
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+DATABASE_URL=postgresql://apml:apml@localhost:5433/apml \
+  .venv/bin/python -m unittest discover -s tests -t .
+```
+
+Without `DATABASE_URL` the PostgreSQL tests skip and the rest still run, so the seal stays verifiable with no setup at all.
+
+See [`data/README.md`](data/README.md) for permitted use of every data file, and [`BENCHMARK_SEAL.md`](docs/foundations/BENCHMARK_SEAL.md) for provenance, the access record and the full control list.
 
 ## Project at a glance
 

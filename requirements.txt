@@ -1,0 +1,5 @@
+# Runtime dependencies for the PostgreSQL adapter.
+#
+# The governance and seal tests deliberately require none of this: they run on
+# a bare interpreter so the Psychosis-Bench seal stays verifiable with no setup.
+psycopg[binary]==3.2.13

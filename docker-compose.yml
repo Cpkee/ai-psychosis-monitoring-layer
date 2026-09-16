@@ -1,0 +1,29 @@
+# Local PostgreSQL for development and contract tests.
+# architecture.md section 7.1: PostgreSQL is the durable source of truth.
+#
+#   docker compose up -d
+#   export DATABASE_URL=postgresql://apml:apml@localhost:5433/apml
+#
+# Contract tests skip when DATABASE_URL is unset, so the governance and seal
+# tests remain runnable with no dependencies and no database.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: apml-postgres
+    environment:
+      POSTGRES_USER: apml
+      POSTGRES_PASSWORD: apml
+      POSTGRES_DB: apml
+    ports:
+      - "5433:5432"
+    volumes:
+      - apml-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apml -d apml"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  apml-pgdata:
