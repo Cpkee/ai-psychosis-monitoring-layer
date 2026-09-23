@@ -2,5 +2,4 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
-docs/foundations/
 tests/

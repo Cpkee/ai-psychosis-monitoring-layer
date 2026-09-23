@@ -122,6 +122,7 @@ domain records → interface with declared error modes → in-memory adapter →
 |---|---|---|---|
 | **7** | **Alert Engine + `AlertRepository`, one versioned rule** | **⬅ next, unblocked** | — |
 | 6b | `LLMJudgeAdapter`, judge config registry, generated JSON schema, opt-in live test | **Blocked** | [OD-013](docs/foundations/OPEN_DECISIONS.md) — see `docs/foundations/JUDGE_DECISIONS.md` |
+| S0–S7 | **Seed pipeline**: Collect → Filter → Choose → Generate → Review → Label, on a shared PostgreSQL. Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-37 | After 7 | S5 generation: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S1 shared writes: OD-024, OD-026 |
 | 8 | Audit trace, Review Query, **synthetic fixtures** | After 7 | — |
 | 9 | FastAPI ingestion, minimal reviewer view | After 8 | [OD-009](docs/foundations/OPEN_DECISIONS.md) dashboard choice |
 | 10 | Reprocessing lineage | After 9 | — |
