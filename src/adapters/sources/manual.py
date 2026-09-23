@@ -41,10 +41,22 @@ class ManualEntry:
             raise ValueError("Each input entry needs exactly one of 'url' or 'path'.")
 
 
+class InvalidInputFile(ValueError):
+    """The input file is not the documented shape."""
+
+
 def load_entries(input_path: str) -> Tuple[ManualEntry, ...]:
     with open(input_path, "r", encoding="utf-8") as handle:
         document = json.load(handle)
-    return tuple(ManualEntry(**entry) for entry in document["documents"])
+    if not isinstance(document, dict) or not isinstance(document.get("documents"), list):
+        raise InvalidInputFile(
+            '{} must be an object with a "documents" list, for example '
+            '{{"documents": [{{"path": "article.txt", "source_type": "news_named_sources"}}]}}. '
+            "A single entry on its own needs that wrapper.".format(input_path))
+    try:
+        return tuple(ManualEntry(**entry) for entry in document["documents"])
+    except TypeError as exc:
+        raise InvalidInputFile("An entry in {} has an unexpected field: {}".format(input_path, exc))
 
 
 class ManualFetcher:

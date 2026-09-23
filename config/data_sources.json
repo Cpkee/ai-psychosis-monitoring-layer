@@ -155,7 +155,7 @@
       "source_type": "runtime_generated",
       "version": "v0.1",
       "integrity_required": false,
-      "provenance": "DS-15. Seeds extracted from DS-14 snapshots by a versioned extractor, with credibility tier assigned by rule from source type (D-25, D-26). Scenario parameters for a simulated older-adult (65+) population (D-23).",
+      "provenance": "DS-15. Seeds extracted from DS-14 snapshots by a versioned extractor, with credibility tier assigned by rule from source type (D-25, D-26). Scenario parameters; no age focus (D-43).",
       "authority_status": "experiment_configuration",
       "sealed": false,
       "retention_class": "experiment_lifetime",

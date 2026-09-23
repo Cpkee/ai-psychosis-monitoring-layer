@@ -5,11 +5,11 @@
 **Canonical for:** how source material becomes seeds, how seeds become simulated conversations, and how those conversations get human-checked and labelled.
 **Position in the build order:** the **S-series**, after increment 7 (Alerting) and before increment 8 (Review). See [`IMPLEMENTATION_FOUNDATION.md` §8](IMPLEMENTATION_FOUNDATION.md#8-build-order).
 
-> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-37** in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
+> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-44** in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
 
 **Every identifier, value, threshold and field name below is an example** unless this plan states it is decided.
 
-The pipeline produces **synthetic conversations about simulated older adults**. It does not diagnose anyone, and nothing it produces is evidence of clinical validity. A seed describes a *reported conversational pattern*, never a person's condition. Write "the account describes the user asserting the companion is sentient", never "the patient was delusional".
+The pipeline produces **synthetic conversations with simulated users**. It does not diagnose anyone, and nothing it produces is evidence of clinical validity. A seed describes a *reported conversational pattern*, never a person's condition. Write "the account describes the user asserting the companion is sentient", never "the patient was delusional".
 
 ---
 
@@ -19,7 +19,7 @@ The annotation pilot ([`ANNOTATION_GUIDE.md` §9](ANNOTATION_GUIDE.md#9-pilot-an
 
 - It is **independent of Psychosis-Bench** ([`PROJECT_SCOPE.md` §7](PROJECT_SCOPE.md#7-data-source-boundaries)).
 - It is **grounded in documented cases**, so scenarios are not only what a generator model imagines.
-- It is **balanced** across theme families, explicitness, harm types and benign hard negatives. Every simulated user is an older adult (65+); there are no age bands (D-23).
+- It is **balanced** across theme families, explicitness, harm types and benign hard negatives. There is no age focus (D-43).
 - It is **traceable** from any conversation back to a source document, a credibility tier and every model and prompt version involved.
 
 No such corpus exists. The Synthetic Scenario Engine (DS-02) and Simulated User (DS-03) are specified but have no module. This plan builds them, with a documented source layer underneath.
@@ -41,14 +41,14 @@ flowchart TD
     end
     subgraph FILTER["2 · Filter"]
         SEED --> OVL[Automatic overlap screen<br/>hashes + metadata flags]
-        OVL --> ELD[Manual check:<br/>older-adult relevance]
+        OVL --> REVF[Person reviews<br/>flagged seeds only]
     end
     subgraph CHOOSE["3 · Choose"]
-        ELD --> COV[Coverage matrix CLI<br/>advisory balance, gaps recorded]
+        REVF --> COV[Coverage matrix CLI<br/>advisory balance, gaps recorded]
         COV --> SPLIT[Split by seed, recorded now<br/>gold · silver · development]
     end
     subgraph GENERATE["4 · Generate"]
-        SPLIT --> SCN[Scenario spec + 65+ persona<br/>+ derived benign counterpart]
+        SPLIT --> SCN[Scenario spec + persona<br/>+ derived benign counterpart]
         SCN --> SIM[Adaptive simulated user<br/>+ hidden-state updater]
         SIM <--> COMP[Reference companion<br/>grounded · sycophantic]
         SIM --> CONV[Conversation cache<br/>ingested via Orchestrator]
@@ -120,9 +120,9 @@ Every fetched document is converted to raw text and stored with its SHA-256 `con
 | `source_document_id`, `source_url`, `content_hash` | Links back to the snapshot |
 | `source_type`, `credibility_tier` | Tier derived by rule |
 | `publication_date`, `retrieved_at` | ISO-8601 `TEXT` (D-8) |
+| `account_kind` | `individual` (one person's documented interaction) or `pattern` (a course the document describes across users). Pattern seeds are weaker evidence, kept and labelled (D-44) |
 | `theme_family` | **Vocabulary A only** (the three README families), or `null` if the account fits none. Never a Psychosis-Bench label. |
 | `raw_theme_terms` | The source's own words for the theme, kept verbatim |
-| `older_adult_evidence` | Stated age, with a short evidence span; `null` if not stated. `null` is not "not an older adult". Used only for the relevance check (§3.2), never to band or stratify. |
 | `arc_summary` | A paraphrased course of the reported interaction. Quotations are limited to short evidence spans (OD-024). |
 | `reported_phase_progression` | Which of the four simulation phases the account describes: a generation parameter, **not a label** |
 | `explicitness_candidate`, `harm_type_candidate` | Generation parameters, not labels |
@@ -137,20 +137,15 @@ Every fetched document is converted to raw text and stored with its SHA-256 `con
 2. **Metadata flag:** if a seed's normalised `harm_type_candidate` matches a sealed case's `harm_type`, or its source cites the benchmark, the seed is **flagged, not removed**, for a person to review. Removal needs a human decision because harm types such as isolation are common in legitimate sources.
 3. The results (`clear` / `blocked` / `flagged`) are stored as overlap-check records with the manifest checksum they ran against. **Only hashes and flags reach the shared DB**, never sealed content.
 
-**Manual older-adult relevance check.** A person runs the CLI and sees each clear or flagged seed with its `older_adult_evidence`. They record one of:
-
-- `relevant_stated_age`: the source states the person is 65 or over.
-- `relevant_plausible`: no age is stated, but the pattern plausibly applies to an older adult. A reason is required.
-- `not_relevant`
-
-The decision records the reviewer's identity and a timestamp (§4.3). A seed marked `not_relevant` is kept, never deleted, and is not eligible for Choose.
+**Human review of flags only.** A person reviews each `flagged` seed and records `keep` or `exclude`, with a reason, their identity and a timestamp (§4.3). `clear` seeds go straight to Choose. An excluded seed is kept, never deleted, and is not eligible for Choose. *(The older-adult relevance check planned here was removed by D-43.)*
 
 ### 3.3 Choose
 
 A person picks seeds with the `seeds choose` CLI, which shows a **coverage matrix**:
 
-> theme family × explicitness × harm type × benign hard negative, with credibility tier shown per cell
+> theme family × explicitness × harm type × benign hard negative, with credibility tier and **account kind** (individual / pattern) shown per cell
 
+- **Pattern seeds are chosen deliberately (D-44).** They can fill a theme that has few individual accounts, but the selection record states how many chosen seeds are patterns, so weaker grounding stays visible in every report.
 - **Balance is advisory (D-35).** Targets live in versioned config (`coverage_targets_v0.1`). The CLI warns on imbalance. Any gap the chooser accepts is **written into the selection record**, so it shows up in every report that uses the selection.
 - **The split is assigned here, by seed, before any labelling (D-34):** `gold`, `silver` or `development`. No seed straddles two splits. The 5 simulated-user pilot seeds (§3.4) are always `development`.
 - Each selection is an immutable record: selection version, chooser, timestamp, seed versions, split per seed, coverage snapshot and recorded gaps.
@@ -159,11 +154,11 @@ A person picks seeds with the `seeds choose` CLI, which shows a **coverage matri
 
 The Scenario Engine turns a chosen seed into complete conversations.
 
-**Personas (D-23).** A new older-adult persona set. Every persona is 65 or over, with **no age bands** for now; authored or generated for this domain and versioned. **DS-04 MindEval personas are not used.** Persona attributes are generation inputs and never labels.
+**Personas (D-23, D-43).** A new persona set, authored or generated for this domain and versioned, with no age focus. **DS-04 MindEval personas are not used.** Persona attributes are generation inputs and never labels.
 
 **Scenario spec.** Seed + persona + companion condition + sample number → a scenario record with the [contracts §4.3](DATA_SOURCES_AND_CONTRACTS.md#43-runs-scenario-and-companion-condition) fields (`theme_family`, `intended_phase_progression`, `explicitness`, `intended_harm_type`, `benign_hard_negative`, generator versions, `seed`) plus `seed_id` and `seed_version`.
 
-**Benign hard negatives (D-36).** Each chosen seed can spawn a benign counterpart with `benign_hard_negative = true` and a link to its parent seed. The counterpart keeps the same kind of older-adult persona but shows healthy companion use, a fiction frame or a hypothetical frame. This matches [taxonomy context categories](ANALYTICAL_TAXONOMY.md#5-context-categories) that must not trigger alerts.
+**Benign hard negatives (D-36).** Each chosen seed can spawn a benign counterpart with `benign_hard_negative = true` and a link to its parent seed. The counterpart keeps the same kind of persona but shows healthy companion use, a fiction frame or a hypothetical frame. This matches [taxonomy context categories](ANALYTICAL_TAXONOMY.md#5-context-categories) that must not trigger alerts.
 
 **Adaptive simulated user.** Each turn responds to the companion's previous message. A **hidden-state updater** tracks belief conviction, AI dependency, social withdrawal and harm intent. Hidden state goes to the separate `simulation_state` table and is **never** joined into judge input, annotator input or evaluation truth ([contracts §8.3](DATA_SOURCES_AND_CONTRACTS.md#8-cross-cutting-constraints)).
 
@@ -182,7 +177,7 @@ The Scenario Engine turns a chosen seed into complete conversations.
 - **Simulated user, reference companion and judge must each come from a different model family.** `config/model_families.json` declares every model's family explicitly (for example, Gemma belongs to the Google family, the same as Gemini; a fine-tune belongs to its base model's family). The code **refuses to start** if two of the three roles share a family. `DeterministicFakeJudgeAdapter` is marked as having no family, so it cannot collide.
 - The extractor is outside the separation rule, as agreed.
 
-**Simulated-user pilot ([OD-022](OPEN_DECISIONS.md#od-022)).** 5 seeds (development split). Candidates: Gemini Flash free tier, a low-cost Claude model, and a local ~24B open-weight model. Human raters, blind to which model produced each conversation, rate: staying in character; holding the belief under pushback; sounding like an older adult. The result is recorded as a new D-record. Until then the simulated-user role has no default, and generation beyond the pilot does not run.
+**Simulated-user pilot ([OD-022](OPEN_DECISIONS.md#od-022)).** 5 seeds (development split). Candidates: Gemini Flash free tier, a low-cost Claude model, and a local ~24B open-weight model. Human raters, blind to which model produced each conversation, rate: staying in character; holding the belief under pushback; sounding like the persona. The result is recorded as a new D-record. Until then the simulated-user role has no default, and generation beyond the pilot does not run.
 
 **Spending cap (D-31).** Every paid provider has a hard cap per run in config. A shared spend ledger records every call's cost estimate. The run stops cleanly with `DELAYED/SPEND_CAP` when the next call would exceed the cap, and resumes from the cache.
 
@@ -196,7 +191,7 @@ The Scenario Engine turns a chosen seed into complete conversations.
 
 1. Stays in character.
 2. Holds the belief under pushback.
-3. Sounds like an older adult.
+3. Sounds like the persona (its voice, circumstances and way of speaking).
 
 These are **realism ratings of the generator**, not assessments of the conversation's risk. They use a separate scale from the 0–3 signal scale and are never converted to or from it.
 
@@ -256,7 +251,7 @@ At each milestone, a **release bundle** is exported. It is content-addressed, co
 
 | Change | Where |
 |---|---|
-| **Target population: older adults, 65+** (D-23). "Real user conversations are not used" still holds. | [`PROJECT_SCOPE.md`](PROJECT_SCOPE.md) §2 and §7 amendment. Stakeholder sign-off is tracked in [OD-023](OPEN_DECISIONS.md#od-023). |
+| **No age focus** (D-43, superseding D-23's 65+ population). "Real user conversations are not used" still holds. | [`PROJECT_SCOPE.md`](PROJECT_SCOPE.md) §1.2 |
 | New source **DS-14, seed source documents**: `generation_input`; permitted for development and internal validation; prohibited as reference labels, training targets, evidence and final evaluation; every other purpose fails closed | [`DATA_SOURCES_AND_CONTRACTS.md` §3](DATA_SOURCES_AND_CONTRACTS.md#3-data-source-register), `config/data_sources.json` |
 | New source **DS-15, seeds**: `experiment_configuration`, not a label source; same permissions as DS-14 | as above |
 | DS-02 producer: "planned" becomes the Scenario Engine; DS-03 gains the model-family rule | as above |
@@ -273,9 +268,9 @@ Each increment leaves the suite green in both modes and ends with a **CLI comman
 |---|---|---|---|
 | **S0** ✅ | Scope and registration | PROJECT_SCOPE §1.2 and §7 amended; DS-14/DS-15 registered in the contracts and in `config/data_sources.json`, with governance tests; D-records and ODs written | Dataset Use Gate (config is executable) |
 | **S1** ✅ | Collect | `SourceDocumentRepository`, `ExtractionCacheRepository`, `SeedRepository`; PubMed/arXiv search with query log; URL/file input (**no PDFs yet**, D-40); snapshotting; **pre-extraction seal screen**; extractor provider seam (Gemini, Ollama, fake); tier rule; per-document resume; shared-DB guard and test refusal (**migrations wait for the shared DB**, D-40) | `seeds collect`, `seeds extract`, `seeds status` |
-| **S2** | Filter | Post-extraction overlap screen and metadata flags; relevance-check records | `seeds screen`, `seeds relevance` |
+| **S2** | Filter | Post-extraction overlap screen and metadata flags; human keep/exclude records for flagged seeds | `seeds screen`, `seeds review-flags` |
 | **S3** | Choose | Coverage matrix, `coverage_targets_v0.1`, selection records, **split by seed**, exposure log | `seeds choose` |
-| **S4** | Scenario and persona | 65+ persona set, Scenario Engine, derived benign counterparts, `ScenarioRepository` | `scenarios build` |
+| **S4** | Scenario and persona | Persona set, Scenario Engine, derived benign counterparts, `ScenarioRepository` | `scenarios build` |
 | **S5** | Generate | Simulated user + hidden-state updater, reference companions, Anthropic provider, model-family registry and **start-up refusal**, spend cap and ledger, conversation cache, ingestion via Orchestrator; **simulated-user pilot run**, with the result recorded as a D-record | `conversations generate`, `pilot simuser` |
 | **S6** | Review | Realism sample rule, rating records, revise-and-regenerate lineage with `supersedes` | `review rate`, `review revise` |
 | **S7** | Label | Silver labels + check CLI + isolation test; blind gold packet export and label submission; release-bundle export and idempotent import | `labels silver`, `labels gold-packet`, `release export/import` |
@@ -297,7 +292,6 @@ Each increment leaves the suite green in both modes and ends with a **CLI comman
 | Gap | Handling |
 |---|---|
 | The gold set cannot satisfy [`ANNOTATION_GUIDE.md` §9.3](ANNOTATION_GUIDE.md#93-selection-criteria-before-sample-size) ("every companion condition") until the client companion exists | Recorded as a coverage gap; blocked on OD-015 |
-| Older adults bring confounds: cognitive impairment, sensory loss, bereavement, isolation that is circumstantial rather than chosen. The taxonomy has no exclusions for them. | [OD-025](OPEN_DECISIONS.md#od-025), M1 |
 | Storing full-text news and paper snapshots in a hosted DB, and quoting them in seeds | [OD-024](OPEN_DECISIONS.md#od-024) |
 | Harm-bearing content hosted on a free tier; free-tier providers may train on inputs | [OD-026](OPEN_DECISIONS.md#od-026), linked to OD-014 |
 | Realism review and silver checking expose people to the same content as annotation, but OD-014 currently gates only the pilot | [OD-026](OPEN_DECISIONS.md#od-026) recommends OD-014 gates Review and Label too |

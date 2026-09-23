@@ -10,7 +10,8 @@
 changes its schema: that happens through reviewed migrations (D-28).
 
 Settings come from the environment, or from a git-ignored ``.env`` file:
-GEMINI_API_KEY, and optionally NCBI_API_KEY and NCBI_EMAIL.
+GEMINI_API_KEY or OPENAI_API_KEY (whichever provider extraction_v0.1.json
+selects), and optionally NCBI_API_KEY and NCBI_EMAIL.
 
 Every step commits as it goes, so any command can be interrupted and re-run:
 searches are logged once each, identical snapshots are skipped, extraction is
@@ -21,12 +22,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.adapters.extractors.gemini import GeminiExtractor
 from src.adapters.extractors.ollama import OllamaExtractor
+from src.adapters.extractors.openai import OpenAIExtractor
 from src.adapters.http import HttpClient, HttpRejected, HttpUnavailable, RetryPolicy
 from src.adapters.postgres.connection import apply_schema, connect, unit_of_work
 from src.adapters.postgres.seeds import (
     PostgresExtractionCacheRepository, PostgresSeedRepository, PostgresSourceDocumentRepository)
 from src.adapters.sources.arxiv import ArxivClient
-from src.adapters.sources.manual import ManualFetcher, load_entries
+from src.adapters.sources.manual import InvalidInputFile, ManualFetcher, load_entries
 from src.adapters.sources.pubmed import PubMedClient
 from src.domain.seeds.collection import UnsupportedDocument
 from src.domain.seeds.extraction import ExtractorRequestRejected
@@ -39,8 +41,8 @@ from src.modules.seeds.runner import SeedExtractionRunner
 from src.modules.seeds.seal_screen import SealScreen
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSIONS = dict(queries="queries_v0.1", tiers="credibility_tiers_v0.1",
-                vocabulary="seed_vocabulary_v0.1", extraction="extraction_v0.1")
+VERSIONS = dict(queries="queries_v0.2", tiers="credibility_tiers_v0.1",
+                vocabulary="seed_vocabulary_v0.2", extraction="extraction_v0.1")
 #: Public search APIs: brief retries, then the query is reported as not run.
 COLLECTOR_RETRY = RetryPolicy(delays=(3.0, 10.0, 30.0))
 
@@ -95,7 +97,11 @@ def cmd_collect(args, url):
     if args.manual:
         fetcher = ManualFetcher(HttpClient(min_interval=1.0, retry=COLLECTOR_RETRY),
                                 base_dir=os.path.dirname(os.path.abspath(args.manual)))
-        for entry in load_entries(args.manual):
+        try:
+            entries = load_entries(args.manual)
+        except (InvalidInputFile, ValueError) as exc:
+            sys.exit(str(exc))
+        for entry in entries:
             try:
                 fetched = fetcher.fetch(entry)
                 with unit_of_work(url) as conn:
@@ -125,6 +131,11 @@ def build_extractor(config):
         return GeminiExtractor(HttpClient(timeout=120.0, min_interval=4.0, retry=retry),
                                os.environ.get(settings["api_key_env"], ""),
                                settings["model"], settings["model_version"])
+    if config.provider == "openai":
+        return OpenAIExtractor(HttpClient(timeout=120.0, retry=retry),
+                               os.environ.get(settings["api_key_env"], ""),
+                               settings["model"], settings["model_version"],
+                               temperature=settings.get("temperature"))
     if config.provider == "ollama":
         return OllamaExtractor(HttpClient(timeout=600.0, retry=retry), settings["host"],
                                settings["model"], settings["model_version"])
@@ -159,8 +170,9 @@ def cmd_extract(args, url):
         print("  {:14s} {}  {}".format(document.status, document.title[:60],
                                        document.status_detail or ""))
         for seed in seeds:
-            print("      seed {} · theme {} · stated age {} · tier {}".format(
-                seed.id, seed.theme_family, seed.stated_age, seed.credibility_tier))
+            print("      seed {} · {} · theme {} · phases {} · tier {}".format(
+                seed.id, seed.account_kind, seed.theme_family, "→".join(seed.reported_phase_progression) or "none",
+                seed.credibility_tier))
         if document.status == DELAYED:
             print("  Extractor unavailable; stopping here. Re-run to resume.")
             return 1

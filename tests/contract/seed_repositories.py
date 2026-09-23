@@ -62,18 +62,17 @@ def make_entry(document=None, prompt_version="extraction_prompt_v0.1#example",
 def make_seed(seed_id="example-seed-1", document=None, **overrides):
     document = document or make_document()
     fields = dict(
-        id=seed_id, seed_version=1, source_document_id=document.id,
+        id=seed_id, seed_version=1, account_kind="individual", source_document_id=document.id,
         content_hash=document.content_hash, source_url=document.source_url,
         source_type=document.source_type, credibility_tier="T1",
         retrieved_at=document.retrieved_at, publication_date="2026", theme_family="A1",
-        raw_theme_terms=("chosen for a mission",), stated_age=71,
-        age_evidence="A 71-year-old widower", arc_summary="Example arc in our own words.",
+        raw_theme_terms=("chosen for a mission",), arc_summary="Example arc in our own words.",
         reported_phase_progression=("phase_1", "phase_3"), explicitness_candidate="explicit",
         harm_type_candidate=None, companion_behaviour_reported=("affirmed",),
         extraction_provider="fake", extraction_model="deterministic",
         extraction_model_version="fake_v0.1",
         extraction_prompt_version="extraction_prompt_v0.1#example",
-        vocabulary_version="seed_vocabulary_v0.1",
+        vocabulary_version="seed_vocabulary_v0.2",
         credibility_tier_version="credibility_tiers_v0.1", created_at="2026-01-01T00:00:00Z")
     fields.update(overrides)
     return Seed(**fields)
@@ -165,15 +164,17 @@ class SeedRepositoryContract:
 
     def test_save_all_and_list_in_extraction_order(self):
         repo = self.repository()
-        seeds = (make_seed("example-seed-b"), make_seed("example-seed-a", stated_age=None,
-                                                        age_evidence=None, theme_family=None))
+        seeds = (make_seed("example-seed-b"),
+                 make_seed("example-seed-a", theme_family=None, account_kind="pattern"))
         repo.save_all(seeds)
         self.assertEqual(repo.list_for_document("example-document-1"), seeds)
 
-    def test_an_unstated_age_stays_null(self):
+    def test_no_theme_stays_null(self):
         repo = self.repository()
-        repo.save_all((make_seed(stated_age=None, age_evidence=None),))
-        self.assertIsNone(repo.list_for_document("example-document-1")[0].stated_age)
+        repo.save_all((make_seed(theme_family=None, harm_type_candidate=None),))
+        stored = repo.list_for_document("example-document-1")[0]
+        self.assertIsNone(stored.theme_family)
+        self.assertIsNone(stored.harm_type_candidate)
 
     def test_a_batch_with_a_duplicate_stores_nothing(self):
         repo = self.repository()
@@ -183,6 +184,6 @@ class SeedRepositoryContract:
         self.assertEqual([s.id for s in repo.list_for_document("example-document-1")],
                          ["example-seed-1"])
 
-    def test_a_stated_age_without_evidence_cannot_exist(self):
+    def test_a_seed_without_an_arc_summary_cannot_exist(self):
         with self.assertRaises(ValueError):
-            make_seed(age_evidence=None)
+            make_seed(arc_summary="  ")

@@ -35,7 +35,7 @@ class LiveExtractor(unittest.TestCase):
 
         load_dotenv()
         config = load_extraction("extraction_v0.1")
-        vocabulary = load_vocabulary("seed_vocabulary_v0.1")
+        vocabulary = load_vocabulary("seed_vocabulary_v0.2")
         # The same rule as production: nothing reaches a model unscreened.
         self.assertFalse(SealScreen(config.max_span_sentences).screen(
             "https://example.org/synthetic", None, SYNTHETIC_DOCUMENT).blocked)
@@ -50,7 +50,8 @@ class LiveExtractor(unittest.TestCase):
             make_entry(document, prompt_version=rendered.version, reply_text=text),
             "2026-01-01T00:00:00Z")
         self.assertGreaterEqual(len(seeds), 1)
-        self.assertEqual(seeds[0].stated_age, 76)
+        # One person's reliance on a companion after bereavement.
+        self.assertEqual((seeds[0].account_kind, seeds[0].theme_family), ("individual", "A3"))
 
 
 if __name__ == "__main__":

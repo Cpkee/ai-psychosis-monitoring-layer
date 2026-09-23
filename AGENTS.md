@@ -110,7 +110,7 @@ domain records → interface with declared error modes → in-memory adapter →
 | 4 | Assessment | `AssessmentRepository` (3 tables, atomic), judge seam, `DeterministicFakeJudgeAdapter`, Result Validator, analysis runner |
 | 5 | Trajectory | Trajectory Engine (6 temporal concepts), `TrajectoryRepository`, wired into the runner |
 | 6a | Judge prompt + parsing | Versioned prompt artefact with real anchors and exclusions, renderer, response parser, `OUTPUT_UNREADABLE` path |
-| S0 + S1 | Seed pipeline: scope and Collect | PROJECT_SCOPE §1.2 (65+, no bands); DS-14/DS-15 registered; PubMed/arXiv/manual collection with query log and content-hashed snapshots; **seal screen before any model call**; Gemini/Ollama extraction seam, cached; `scripts/seeds.py`; D-40 |
+| S0 + S1 | Seed pipeline: scope and Collect | PROJECT_SCOPE §1.2 (no age focus since D-43); DS-14/DS-15 registered; PubMed/arXiv/manual collection with query log and content-hashed snapshots; **seal screen before any model call**; Gemini/Ollama extraction seam, cached; `scripts/seeds.py`; D-40 |
 | 7 | Alerting | `alert_rules_v0.1`, Alert Engine, `AlertRepository` both adapters, wired into the runner in one unit of work; D-38, D-39 |
 
 **What works end to end today:** a synthetic conversation is authorised at the gate, ingested with full metadata, scored per exchange by the fake judge, validated, stored with complete provenance, its trajectory derived across turns, and a versioned rule raises an alert citing its scores, trajectory, evidence turns and rule version — or it fails visibly with the cause distinguishable. `scripts/walkthrough.py` runs the whole path.

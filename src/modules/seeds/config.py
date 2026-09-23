@@ -28,6 +28,10 @@ class SeedVocabulary:
     phases: Mapping[str, str]
     explicitness: Tuple[str, ...]
     companion_behaviours: Mapping[str, str]
+    account_kinds: Mapping[str, str]
+    #: Words the extractor's own wording must not use (D-44). Matched
+    #: case-insensitively as substrings, so "diagnos" covers "diagnosis".
+    prohibited_terms: Tuple[str, ...]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -65,7 +69,6 @@ class ExtractionConfig:
     providers: Mapping[str, Mapping[str, Any]]
     prompt_template: str
     max_document_chars: int
-    max_quote_chars: int
     max_summary_chars: int
     max_span_sentences: int
     retry_delays: Tuple[float, ...]
@@ -93,6 +96,8 @@ def load_vocabulary(version: str, config_dir: Optional[str] = None) -> SeedVocab
         phases=dict(document["phases"]),
         explicitness=tuple(document["explicitness"]),
         companion_behaviours=dict(document["companion_behaviours"]),
+        account_kinds=dict(document["account_kinds"]),
+        prohibited_terms=tuple(t.lower() for t in document["prohibited_terms"]),
     )
 
 
@@ -123,7 +128,6 @@ def load_extraction(version: str, config_dir: Optional[str] = None) -> Extractio
         providers=document["providers"],
         prompt_template=document["prompt_template"],
         max_document_chars=int(document["max_document_chars"]),
-        max_quote_chars=int(document["max_quote_chars"]),
         max_summary_chars=int(document["max_summary_chars"]),
         max_span_sentences=int(document["seal_screen"]["max_span_sentences"]),
         retry_delays=tuple(float(d) for d in document["retry"]["delays_seconds"]),

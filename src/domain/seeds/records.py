@@ -120,13 +120,14 @@ class Seed:
     source_type: str
     credibility_tier: str
     retrieved_at: str
+    #: "individual" (one person's documented interaction) or "pattern" (a course
+    #: the document describes across users). Pattern seeds are weaker evidence
+    #: and are chosen deliberately at S3 (D-44).
+    account_kind: str
     #: Vocabulary A code, or None when the account fits no project family.
     theme_family: Optional[str]
     #: The source's own words for the theme, verbatim.
     raw_theme_terms: Tuple[str, ...]
-    #: None means the source states no age. It never means "not an older adult".
-    stated_age: Optional[int]
-    age_evidence: Optional[str]
     arc_summary: str
     reported_phase_progression: Tuple[str, ...]
     explicitness_candidate: str
@@ -142,7 +143,5 @@ class Seed:
     publication_date: Optional[str] = None
 
     def __post_init__(self) -> None:
-        if self.stated_age is not None and not self.age_evidence:
-            raise ValueError("A stated age must cite the text it was stated in.")
         if not self.arc_summary.strip():
             raise ValueError("A seed needs an arc summary.")

@@ -13,6 +13,7 @@ import unittest
 
 from src.adapters.extractors.gemini import GeminiExtractor
 from src.adapters.extractors.ollama import OllamaExtractor
+from src.adapters.extractors.openai import OpenAIExtractor
 from src.adapters.http import HttpRejected, HttpUnavailable
 from src.adapters.memory.seeds import InMemorySourceDocumentRepository
 from src.adapters.sources.arxiv import ArxivClient, parse_feed
@@ -166,6 +167,17 @@ class Manual(unittest.TestCase):
             ManualFetcher(FakeHttp([b"%PDF-1.7 example"])).fetch(
                 ManualEntry(source_type="legal_filing", url="https://example.org/download"))
 
+    def test_an_input_file_without_the_documents_wrapper_is_explained(self):
+        from src.adapters.sources.manual import InvalidInputFile, load_entries
+
+        directory = tempfile.mkdtemp()
+        path = os.path.join(directory, "inputs.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"path": "article.txt", "source_type": "news_named_sources"}, handle)
+        with self.assertRaises(InvalidInputFile) as caught:
+            load_entries(path)
+        self.assertIn('"documents" list', str(caught.exception))
+
     def test_an_entry_needs_exactly_one_location(self):
         with self.assertRaises(ValueError):
             ManualEntry(source_type="news_other")
@@ -270,6 +282,54 @@ class Ollama(unittest.TestCase):
         http = FakeHttp([{"response": '{"seeds": [', "done_reason": "length"}])
         with self.assertRaises(ExtractionOutputUnreadable):
             OllamaExtractor(http, "http://localhost:11434", "m", "v").extract(Gemini.REQUEST)
+
+
+class OpenAI(unittest.TestCase):
+    REQUEST = ExtractionRequest(prompt="Example prompt.", schema={
+        "type": "object", "properties": {"seeds": {"type": "array", "items": {"type": "string"}}},
+        "required": ["seeds"]})
+
+    def extractor(self, http, temperature=0):
+        return OpenAIExtractor(http, "example-key", "openai", "example-model-2026-01-01",
+                               temperature=temperature)
+
+    def reply(self, content='{"seeds": []}', finish="stop", refusal=None):
+        return {"choices": [{"finish_reason": finish,
+                             "message": {"content": content, "refusal": refusal}}]}
+
+    def test_a_strict_schema_and_the_pinned_model_are_sent(self):
+        http = FakeHttp([self.reply()])
+        self.assertEqual(self.extractor(http).extract(self.REQUEST), '{"seeds": []}')
+        method, url, body, headers = http.calls[0]
+        self.assertEqual(url, "https://api.openai.com/v1/chat/completions")
+        self.assertEqual(body["model"], "example-model-2026-01-01")
+        self.assertEqual(body["temperature"], 0)
+        schema = body["response_format"]["json_schema"]
+        self.assertIs(schema["strict"], True)
+        self.assertIs(schema["schema"]["additionalProperties"], False)
+        self.assertEqual(headers, {"Authorization": "Bearer example-key"})
+
+    def test_temperature_is_omitted_when_configured_as_null(self):
+        """Some model families reject any temperature but their default."""
+        http = FakeHttp([self.reply()])
+        self.extractor(http, temperature=None).extract(self.REQUEST)
+        self.assertNotIn("temperature", http.calls[0][2])
+
+    def test_errors_map_onto_the_seam(self):
+        with self.assertRaises(ExtractorUnavailable):
+            self.extractor(FakeHttp(error=HttpUnavailable("HTTP 429"))).extract(self.REQUEST)
+        with self.assertRaises(ExtractorRequestRejected):
+            self.extractor(FakeHttp(error=HttpRejected("HTTP 401"))).extract(self.REQUEST)
+
+    def test_refused_truncated_or_empty_replies_are_unreadable(self):
+        for reply in (self.reply(content=None, refusal="Example refusal."),
+                      self.reply(finish="length"), self.reply(content="  "), {"choices": []}):
+            with self.subTest(reply=reply), self.assertRaises(ExtractionOutputUnreadable):
+                self.extractor(FakeHttp([reply])).extract(self.REQUEST)
+
+    def test_a_missing_key_is_refused_before_any_call(self):
+        with self.assertRaises(ExtractorRequestRejected):
+            OpenAIExtractor(FakeHttp(), "", "openai", "example-model-2026-01-01")
 
 
 if __name__ == "__main__":

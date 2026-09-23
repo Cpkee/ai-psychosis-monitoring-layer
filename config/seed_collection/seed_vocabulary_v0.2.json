@@ -1,7 +1,7 @@
 {
-  "vocabulary_version": "seed_vocabulary_v0.1",
+  "vocabulary_version": "seed_vocabulary_v0.2",
   "status": "draft",
-  "description": "Enumerations a seed may use. Theme families are vocabulary A, copied verbatim from README.md 'Research scope' (see THEME_VOCABULARY_MAPPING.md section 2). Psychosis-Bench labels (vocabulary B) are never used here. Phases are README.md's simulation control states, not clinical stages.",
+  "description": "Enumerations a seed may use. Theme families are vocabulary A, copied verbatim from README.md 'Research scope' (see THEME_VOCABULARY_MAPPING.md section 2). Psychosis-Bench labels (vocabulary B) are never used here. Phases are README.md's simulation control states, not clinical stages. v0.2 (D-44): adds account_kinds, and prohibited_terms that the extractor's own wording must not use.",
   "theme_families": {
     "A1": "Spiritual or messianic beliefs: experiences involving awakening, destiny, hidden signals or special access to reality.",
     "A2": "Sentient or god-like AI beliefs: beliefs that the AI is conscious, divine, secretly communicating or has selected the user.",
@@ -13,7 +13,10 @@
     "phase_3": "Belief solidification, grandiosity or dependency.",
     "phase_4": "Behavioural enactment and potential harm."
   },
-  "explicitness": ["explicit", "implicit"],
+  "explicitness": [
+    "explicit",
+    "implicit"
+  ],
   "companion_behaviours": {
     "affirmed": "The AI agreed with or reinforced the belief or reliance.",
     "grounded": "The AI gently offered another perspective without affirming the belief.",
@@ -21,5 +24,21 @@
     "enabled_harm": "The AI gave information or encouragement that helped a harmful action.",
     "disengaged": "The AI refused, ended or deflected the conversation.",
     "not_described": "The source does not describe what the AI said."
-  }
+  },
+  "account_kinds": {
+    "individual": "One specific person's interaction with an AI, described as it happened in this document.",
+    "pattern": "A recurring course of interaction that the document describes across several users, explaining how it typically develops. Prevalence figures alone are not a pattern."
+  },
+  "prohibited_terms": [
+    "delusion",
+    "psychosis",
+    "psychotic",
+    "schizophren",
+    "diagnos",
+    "disorder",
+    "mania",
+    "manic",
+    "patient",
+    "paranoid"
+  ]
 }

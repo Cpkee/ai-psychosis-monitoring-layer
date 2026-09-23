@@ -41,7 +41,7 @@ from tests.test_seal_screen import EXAMPLE_PROMPT, manifest_with
 from tests.test_seed_extraction import raw_seed, reply
 
 CONFIG = load_extraction("extraction_v0.1")
-VOCABULARY = load_vocabulary("seed_vocabulary_v0.1")
+VOCABULARY = load_vocabulary("seed_vocabulary_v0.2")
 
 
 def raising(error):
@@ -169,6 +169,21 @@ class RunnerTest(unittest.TestCase):
         again = FakeExtractor(reply(raw_seed()))
         self.assertEqual(self.runner(again).process(self.document.id).status, EXTRACTED)
         self.assertEqual(again.requests, [])
+
+    def test_re_running_a_reset_document_is_a_no_op_not_a_crash(self):
+        """Same prompt and model: the cached reply rebuilds the same seed ids."""
+        import dataclasses
+
+        self.runner(FakeExtractor(reply(raw_seed(), raw_seed()))).process(self.document.id)
+        self.documents.update(dataclasses.replace(self.documents.get(self.document.id),
+                                                  status=SCREENED), EXTRACTED)
+        again = FakeExtractor(reply(raw_seed()))
+        done = self.runner(again).process(self.document.id)
+
+        self.assertEqual(done.status, EXTRACTED)
+        self.assertIn("already stored", done.status_detail)
+        self.assertEqual(again.requests, [])
+        self.assertEqual(len(self.seeds.list_for_document(self.document.id)), 2)
 
     def test_a_document_with_no_account_is_extracted_with_no_seeds(self):
         done = self.runner(FakeExtractor(json.dumps({"seeds": []}))).process(self.document.id)

@@ -1,0 +1,25 @@
+{
+  "query_config_version": "queries_v0.2",
+  "status": "draft",
+  "description": "Automated searches (D-24). Every run logs the query text, time and result ids. v0.2 (D-43): the older-adult filter is removed. Example queries, provisional: tune them against what they return, never against Psychosis-Bench.",
+  "queries": [
+    {
+      "query_id": "pubmed-ai-companion-beliefs",
+      "source": "pubmed",
+      "text": "(chatbot[tiab] OR \"conversational agent\"[tiab] OR \"large language model\"[tiab] OR \"AI companion\"[tiab]) AND (delusion*[tiab] OR psychos*[tiab] OR \"emotional dependence\"[tiab] OR attachment[tiab])",
+      "max_results": 20
+    },
+    {
+      "query_id": "pubmed-ai-chatbot-case-reports",
+      "source": "pubmed",
+      "text": "(chatbot[tiab] OR \"large language model\"[tiab] OR ChatGPT[tiab]) AND (delusion*[tiab] OR psychos*[tiab] OR mania[tiab]) AND \"case reports\"[pt]",
+      "max_results": 20
+    },
+    {
+      "query_id": "arxiv-ai-companion-dependence",
+      "source": "arxiv",
+      "text": "abs:\"AI companion\" AND (abs:dependence OR abs:attachment OR abs:delusion)",
+      "max_results": 20
+    }
+  ]
+}

@@ -2,12 +2,18 @@
   "extraction_config_version": "extraction_v0.1",
   "status": "draft",
   "description": "Seed extraction (D-26). Switch provider by changing 'provider'; no code change. model_version must be an exact, pinned version and is part of the cache key. Temperature is always 0. API keys come from the environment (.env, git-ignored), never from this file.",
-  "provider": "gemini",
+  "provider": "openai",
   "providers": {
     "gemini": {
       "model": "gemini-flash",
       "model_version": "gemini-3.6-flash",
       "api_key_env": "GEMINI_API_KEY"
+    },
+    "openai": {
+      "model": "openai",
+      "model_version": "gpt-5.4-mini-2026-03-17",
+      "api_key_env": "OPENAI_API_KEY",
+      "temperature": 0
     },
     "ollama": {
       "model": "ollama-local",
@@ -15,9 +21,8 @@
       "host": "http://localhost:11434"
     }
   },
-  "prompt_template": "extraction_prompt_v0.1",
+  "prompt_template": "extraction_prompt_v0.3",
   "max_document_chars": 30000,
-  "max_quote_chars": 200,
   "max_summary_chars": 1200,
   "seal_screen": {
     "max_span_sentences": 6

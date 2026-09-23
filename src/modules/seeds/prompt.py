@@ -36,11 +36,10 @@ def reply_schema(vocabulary: SeedVocabulary) -> Dict[str, Any]:
     seed = {
         "type": "object",
         "properties": {
+            "account_kind": {"type": "string", "enum": sorted(vocabulary.account_kinds)},
             "theme_family": {"type": "string", "enum": sorted(vocabulary.theme_families),
                              "nullable": True},
             "raw_theme_terms": {"type": "array", "items": {"type": "string"}},
-            "stated_age": {"type": "integer", "nullable": True},
-            "age_evidence": nullable_string,
             "arc_summary": {"type": "string"},
             "reported_phase_progression": {
                 "type": "array",
@@ -76,7 +75,7 @@ class PromptRenderer:
                 "template": self._template,
                 "vocabulary": dataclasses.asdict(vocabulary),
                 "schema": self._schema,
-                "limits": [config.max_document_chars, config.max_quote_chars],
+                "limits": [config.max_document_chars],
             },
             sort_keys=True,
         )
@@ -97,7 +96,7 @@ class PromptRenderer:
             "{explicitness_values}": ", ".join(
                 '"{}"'.format(v) for v in self._vocabulary.explicitness),
             "{behaviour_lines}": _lines(self._vocabulary.companion_behaviours),
-            "{max_quote_chars}": str(self._config.max_quote_chars),
+            "{account_kind_lines}": _lines(self._vocabulary.account_kinds),
         }
         text = self._template
         for placeholder, value in values.items():

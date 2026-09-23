@@ -93,6 +93,13 @@ class SeedExtractionRunner:
                                           self._clock())
         except SeedsRejected as exc:
             return self._fail(document, VALIDATION_FAILED, "; ".join(exc.problems))
+        stored = {seed.id for seed in self._seeds.list_for_document(document.id)}
+        if built and all(seed.id in stored for seed in built):
+            # Seed ids are derived from the cached reply, so a document reset
+            # and re-run under the same prompt and model rebuilds exactly the
+            # seeds it already has. That is a no-op, not a conflict.
+            return self._move(document, EXTRACTED, detail="{} seed(s) extracted; "
+                              "already stored.".format(len(built)))
         self._seeds.save_all(built)
         return self._move(document, EXTRACTED,
                           detail="{} seed(s) extracted.".format(len(built)))

@@ -27,15 +27,13 @@ This system **does not make clinical diagnoses and does not make autonomous medi
 
 This boundary is repeated in every derived document and must survive every future revision.
 
-### 1.2 Simulated population — older adults (65+)
+### 1.2 Simulated population
 
-*Amendment, 2026-09-23. Decided by the project lead (D-23); stakeholder approval pending: [OD-023](OPEN_DECISIONS.md#od-023).*
+*Amendment, 2026-09-24. Decided by the project lead (D-43), superseding the 65+ focus of D-23.*
 
-- Every **simulated** user is an older adult, aged **65 or over**. The population is treated as one group: there are **no age bands** for now.
-- Personas are written for this population. MindEval-derived personas (DS-04) are not used for them.
-- Seeds are kept only if a person confirms the account applies to an older adult, either because the source states an age of 65+ or because the pattern plausibly applies ([`SEED_PIPELINE_PLAN.md` §3.2](SEED_PIPELINE_PLAN.md#32-filter)).
-- Age is a property of the **simulation**, not something the system infers about anyone. No output estimates a user's age, and nothing about age may be read as a clinical characteristic.
-- Older adults bring confounds the taxonomy does not yet exclude: cognitive impairment, sensory loss, bereavement, and isolation from circumstance rather than choice. Until [OD-025](OPEN_DECISIONS.md#od-025) is resolved, treat any alert that could reflect one of them with particular caution.
+- Simulated users are adults, with **no age focus**. Age is not a selection criterion for seeds, not a persona requirement, and not extracted from sources.
+- Personas are written for this project. MindEval-derived personas (DS-04) are not used for them.
+- No output estimates a user's age, and nothing about age may be read as a clinical characteristic.
 
 Real user conversations remain out of scope at every stage (§7).
 
@@ -154,7 +152,7 @@ Full register: [`DATA_SOURCES_AND_CONTRACTS.md` §3](DATA_SOURCES_AND_CONTRACTS.
 | Boundary | Rule |
 |---|---|
 | **Psychosis-Bench** (present in this repository as [`data/test_cases.json`](../../data/test_cases.json), 16 cases) | **Sealed.** Final evaluation only. Excluded from training, prompt tuning, rubric tuning, threshold selection and model selection. Results are reported, never iterated against. |
-| **Synthetic scenarios and simulated-user conversations** | The development and validation corpus. Generated from independent scenario specifications, for a simulated older-adult (65+) population (§1.2). |
+| **Synthetic scenarios and simulated-user conversations** | The development and validation corpus. Generated from independent scenario specifications, (§1.2). |
 | **Collected source documents** (DS-14) | Published accounts from PubMed, arXiv, and human-supplied news, legal filings and incident databases, snapshotted with a content hash. **Never forums or social media.** Generation input only: never labels, never evidence of validity, never final evaluation. |
 | **Seeds** (DS-15) | Scenario parameters extracted from DS-14. Their theme, phase and harm type are generation parameters, **not labels**. Same permissions as DS-14. |
 | **Grounded reference and sycophantic stress-test conditions** | Experimental controls producing lower-risk and higher-risk reference trajectories. Offline only. |

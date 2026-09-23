@@ -25,14 +25,13 @@ from src.modules.seeds.reply import SeedsRejected, SeedValidator, parse_reply
 from tests.contract.seed_repositories import make_document, make_entry
 
 CONFIG = load_extraction("extraction_v0.1")
-VOCABULARY = load_vocabulary("seed_vocabulary_v0.1")
+VOCABULARY = load_vocabulary("seed_vocabulary_v0.2")
 TIERS = load_tiers("credibility_tiers_v0.1")
 
 
 def raw_seed(**overrides):
     fields = dict(
-        theme_family="A2", raw_theme_terms=["the bot is alive"], stated_age=74,
-        age_evidence="a 74-year-old retired engineer",
+        account_kind="individual", theme_family="A2", raw_theme_terms=["the bot is alive"],
         arc_summary="Example arc: daily chats grew into a belief the chatbot was conscious.",
         reported_phase_progression=["phase_1", "phase_2", "phase_3"],
         explicitness_candidate="explicit", harm_type_candidate="social isolation",
@@ -49,10 +48,10 @@ class Prompt(unittest.TestCase):
     def test_vocabularies_are_injected_and_no_placeholder_is_left(self):
         text = PromptRenderer(CONFIG, VOCABULARY).render("Example document.").text
         for code in list(VOCABULARY.theme_families) + list(VOCABULARY.phases) + \
-                list(VOCABULARY.companion_behaviours):
+                list(VOCABULARY.companion_behaviours) + list(VOCABULARY.account_kinds):
             self.assertIn("`{}`".format(code), text)
         for placeholder in ("{theme_lines}", "{phase_lines}", "{behaviour_lines}",
-                            "{explicitness_values}", "{max_quote_chars}", "{document}"):
+                            "{explicitness_values}", "{account_kind_lines}", "{document}"):
             self.assertNotIn(placeholder, text)
         self.assertNotIn("<!--", text)
 
@@ -81,6 +80,8 @@ class Prompt(unittest.TestCase):
         seed = reply_schema(VOCABULARY)["properties"]["seeds"]["items"]
         self.assertEqual(set(seed["properties"]["theme_family"]["enum"]),
                          set(VOCABULARY.theme_families))
+        self.assertEqual(set(seed["properties"]["account_kind"]["enum"]),
+                         {"individual", "pattern"})
         self.assertTrue(seed["properties"]["theme_family"]["nullable"])
         self.assertEqual(set(seed["required"]), set(seed["properties"]))
 
@@ -109,9 +110,8 @@ class Validation(unittest.TestCase):
     def test_a_valid_seed_carries_full_provenance(self):
         (seed,) = self.build(raw_seed())
         self.assertEqual(seed.theme_family, "A2")
-        self.assertEqual(seed.stated_age, 74)
         self.assertEqual(seed.extraction_prompt_version, "extraction_prompt_v0.1#example")
-        self.assertEqual(seed.vocabulary_version, "seed_vocabulary_v0.1")
+        self.assertEqual(seed.vocabulary_version, "seed_vocabulary_v0.2")
         self.assertEqual(seed.credibility_tier_version, "credibility_tiers_v0.1")
 
     def test_the_tier_comes_from_configuration_never_the_reply(self):
@@ -128,17 +128,47 @@ class Validation(unittest.TestCase):
         with self.assertRaises(SeedsRejected):
             self.build(raw_seed(theme_family="Grandiose Delusions"))
 
-    def test_no_theme_and_no_age_are_valid_and_stay_null(self):
-        (seed,) = self.build(raw_seed(theme_family=None, stated_age=None, age_evidence=None))
+    def test_both_account_kinds_are_kept_and_distinguishable(self):
+        """D-44: pattern seeds are kept, labelled, and chosen deliberately at S3."""
+        individual, pattern = self.build(raw_seed(), raw_seed(account_kind="pattern"))
+        self.assertEqual((individual.account_kind, pattern.account_kind), ("individual", "pattern"))
+
+    def test_the_account_kind_must_be_known(self):
+        for seed in (raw_seed(account_kind="anecdote"),
+                     {k: v for k, v in raw_seed().items() if k != "account_kind"}):
+            with self.subTest(seed=seed), self.assertRaises(SeedsRejected):
+                self.build(seed)
+
+    def test_diagnostic_terms_are_refused_in_the_extractors_own_wording(self):
+        """D-44 and the project's non-diagnostic rule: describe, never diagnose."""
+        for field, text in (("arc_summary", "The user developed a Delusion about the bot."),
+                            ("harm_type_candidate", "reinforced delusional beliefs"),
+                            ("arc_summary", "The patient stopped eating."),
+                            ("harm_type_candidate", "a psychotic episode")):
+            with self.subTest(field=field, text=text), self.assertRaises(SeedsRejected) as caught:
+                self.build(raw_seed(**{field: text}))
+            self.assertIn("diagnostic term", str(caught.exception))
+
+    def test_the_sources_own_words_may_use_its_terminology(self):
+        """raw_theme_terms are verbatim quotations, so they are exempt."""
+        (seed,) = self.build(raw_seed(raw_theme_terms=["AI-associated delusions"]))
+        self.assertEqual(seed.raw_theme_terms, ("AI-associated delusions",))
+
+    def test_no_theme_is_valid_and_stays_null(self):
+        (seed,) = self.build(raw_seed(theme_family=None))
         self.assertIsNone(seed.theme_family)
-        self.assertIsNone(seed.stated_age)
+
+    def test_age_is_neither_asked_for_nor_kept(self):
+        """D-43: age is out of scope. A model that volunteers one has it dropped."""
+        schema = reply_schema(VOCABULARY)["properties"]["seeds"]["items"]["properties"]
+        prompt = PromptRenderer(CONFIG, VOCABULARY).render("Example document.").text
+        self.assertFalse({"stated_age", "age_evidence", "age"} & set(schema))
+        self.assertNotIn("stated_age", prompt)
+        (seed,) = self.build(dict(raw_seed(), stated_age=74, age_evidence="a 74-year-old"))
+        self.assertFalse(hasattr(seed, "stated_age"))
 
     def test_content_rules(self):
         cases = {
-            "stated age without evidence": raw_seed(age_evidence=None),
-            "age not a number": raw_seed(stated_age="seventy"),
-            "age implausible": raw_seed(stated_age=300),
-            "quote too long": raw_seed(age_evidence="x" * (CONFIG.max_quote_chars + 1)),
             "empty summary": raw_seed(arc_summary="  "),
             "summary too long": raw_seed(arc_summary="x" * (CONFIG.max_summary_chars + 1)),
             "unknown phase": raw_seed(reported_phase_progression=["stage_4"]),
@@ -167,16 +197,30 @@ class Validation(unittest.TestCase):
         self.assertNotEqual(first[0].id, first[1].id)
 
 
-class OllamaSchema(unittest.TestCase):
+class StandardJsonSchema(unittest.TestCase):
+    """The conversion Ollama and OpenAI both use."""
+
     def test_nullable_becomes_a_null_type(self):
-        from src.adapters.extractors.ollama import to_json_schema
+        from src.adapters.extractors.json_schema import to_json_schema
 
         converted = to_json_schema(reply_schema(VOCABULARY))
         seed = converted["properties"]["seeds"]["items"]["properties"]
-        self.assertEqual(seed["stated_age"]["type"], ["integer", "null"])
+        self.assertEqual(seed["harm_type_candidate"]["type"], ["string", "null"])
         self.assertIn(None, seed["theme_family"]["enum"])
         self.assertEqual(seed["arc_summary"], {"type": "string"})
         self.assertNotIn("nullable", json.dumps(converted))
+        self.assertNotIn("additionalProperties", json.dumps(converted))
+
+    def test_strict_mode_closes_every_object_and_requires_every_field(self):
+        """OpenAI strict Structured Outputs refuse a schema without these."""
+        from src.adapters.extractors.json_schema import to_json_schema
+
+        converted = to_json_schema(reply_schema(VOCABULARY), strict=True)
+        seed = converted["properties"]["seeds"]["items"]
+        self.assertIs(converted["additionalProperties"], False)
+        self.assertIs(seed["additionalProperties"], False)
+        self.assertEqual(set(seed["required"]), set(seed["properties"]))
+        self.assertNotIn("additionalProperties", seed["properties"])
 
 
 if __name__ == "__main__":

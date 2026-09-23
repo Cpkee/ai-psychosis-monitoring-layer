@@ -316,7 +316,7 @@ Derived rule (tested by [AT-8](IMPLEMENTATION_FOUNDATION.md#6-acceptance-tests))
 | **Type** | Structured scenario parameters extracted from a DS-14 snapshot: theme family (vocabulary A only), paraphrased arc, reported phase progression, harm type, explicitness, credibility tier |
 | **Producer** | Versioned extractor (provider seam, cached by document hash + prompt version + model version; D-26). Credibility tier assigned **by rule from source type**, never by the model (D-25). |
 | **Consumer** | Seed filter and selection; Synthetic Scenario Engine (DS-02) |
-| **Purpose** | The input from which scenarios for a simulated **older-adult (65+)** population are built (D-23) |
+| **Purpose** | The input from which scenarios are built. No age focus (D-43) |
 | **Permitted training use** | Not permitted (fails closed) |
 | **Permitted validation use** | Permitted as generation input. **Prohibited as reference labels or as evidence of validity.** |
 | **Permitted final-evaluation use** | **Prohibited** |

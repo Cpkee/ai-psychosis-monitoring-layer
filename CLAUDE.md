@@ -64,7 +64,7 @@ TEST_DATABASE_URL=postgresql://apml:apml@localhost:5433/apml_test \
   .venv/bin/python -m unittest discover -s tests -t .
 ```
 
-Without `TEST_DATABASE_URL` the PostgreSQL tests skip and everything else runs. **421 tests**; 83 skip without a database (82 PostgreSQL, plus the opt-in live extractor test: `APML_LIVE_TESTS=1`).
+Without `TEST_DATABASE_URL` the PostgreSQL tests skip and everything else runs. **433 tests**; 82 skip without a database (81 PostgreSQL, plus the opt-in live extractor test: `APML_LIVE_TESTS=1`).
 
 **Two local databases (D-41).** `apml_test` (`TEST_DATABASE_URL`) is for tests and the walkthrough, which truncate tables; anything that truncates refuses a database not named `*_test`. `apml` (`DATABASE_URL`) holds working data for `scripts/seeds.py`: snapshots, cached extractor replies and seeds, which cost real model calls to reproduce. **Never point tests at `apml`.**
 
@@ -112,7 +112,7 @@ domain records → interface with declared error modes → in-memory adapter →
 | 4 | Assessment | `AssessmentRepository` (3 tables, atomic), judge seam, `DeterministicFakeJudgeAdapter`, Result Validator, analysis runner |
 | 5 | Trajectory | Trajectory Engine (6 temporal concepts), `TrajectoryRepository`, wired into the runner |
 | 6a | Judge prompt + parsing | Versioned prompt artefact with real anchors and exclusions, renderer, response parser, `OUTPUT_UNREADABLE` path |
-| S0 + S1 | Seed pipeline: scope and Collect | PROJECT_SCOPE §1.2 (65+, no bands); DS-14/DS-15 registered; PubMed/arXiv/manual collection with query log and content-hashed snapshots; **seal screen before any model call**; Gemini/Ollama extraction seam, cached; `scripts/seeds.py`; D-40 |
+| S0 + S1 | Seed pipeline: scope and Collect | PROJECT_SCOPE §1.2 (no age focus since D-43); DS-14/DS-15 registered; PubMed/arXiv/manual collection with query log and content-hashed snapshots; **seal screen before any model call**; Gemini/Ollama extraction seam, cached; `scripts/seeds.py`; D-40 |
 | 7 | Alerting | `alert_rules_v0.1`, Alert Engine, `AlertRepository` both adapters, wired into the runner in one unit of work; D-38, D-39 |
 
 **What works end to end today:** a synthetic conversation is authorised at the gate, ingested with full metadata, scored per exchange by the fake judge, validated, stored with complete provenance, its trajectory derived across turns, and a versioned rule raises an alert citing its scores, trajectory, evidence turns and rule version — or it fails visibly with the cause distinguishable. `scripts/walkthrough.py` runs the whole path.
@@ -126,7 +126,7 @@ domain records → interface with declared error modes → in-memory adapter →
 | # | Increment | State | Blocked by |
 |---|---|---|---|
 | 6b | `LLMJudgeAdapter`, judge config registry, generated JSON schema, opt-in live test | **Blocked** | [OD-013](docs/foundations/OPEN_DECISIONS.md) — see `docs/foundations/JUDGE_DECISIONS.md` |
-| S2–S7 | **⬅ next: S2 Filter.** Seed pipeline: Filter → Choose → Generate → Review → Label. Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-41 | Unblocked | S5 generation: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S1 shared writes: OD-024, OD-026 |
+| S2–S7 | **⬅ next: S2 Filter.** Seed pipeline: Filter → Choose → Generate → Review → Label. Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-44 | Unblocked | S5 generation: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S1 shared writes: OD-024, OD-026 |
 | 8 | Audit trace, Review Query, **synthetic fixtures** | After 7 | — |
 | 9 | FastAPI ingestion, minimal reviewer view | After 8 | [OD-009](docs/foundations/OPEN_DECISIONS.md) dashboard choice |
 | 10 | Reprocessing lineage | After 9 | — |
@@ -185,7 +185,8 @@ The last two matter most. The pilot produces the human-adjudicated labels; witho
 
 - In-memory adapters cannot express transactional behaviour. Anything depending on rollback must be tested against PostgreSQL.
 - No real judge. `DeterministicFakeJudgeAdapter` only — every score it returns is canned, so nothing produced so far says anything about a model's behaviour.
-- `extraction_v0.1` uses `gemini-3.6-flash` (checked 2026-09-23). `gemini-2.5-flash` is listed but refuses new users with a 404. A named release, not a `-latest` alias; it is part of the cache key.
+- Seeds carry `account_kind` (`individual` / `pattern`, D-44); the extractor's own wording may not use diagnostic terms (list in `seed_vocabulary_v0.2.json`). Changing the prompt does not re-extract finished documents yet: reset them by hand until S2/S6 adds a command.
+- Extraction providers: `gemini` (`gemini-3.6-flash`; the free tier allows **20 requests/day/model** and was congested, so it is unusable for batches), `openai` (**active**, D-42: `gpt-5.4-mini-2026-03-17`, temperature 0, verified 2026-09-23), `ollama`. `gemini-2.5-flash` is listed but refuses new users with a 404. The model version is part of the cache key.
 - Seed collection reads abstracts only; PMC full text and PDFs are absent (D-40). Shared-DB migrations wait until the shared database is chosen.
 - Alerts carry every version but not the `draft` status label; that belongs to the increment 9 view (§19 criterion 13).
 - `trajectory_updates` `CHECK` uses `array_length`, which lets an empty array through in raw SQL (IMPLEMENTATION_FOUNDATION §10.1). `alerts` uses `cardinality`.

@@ -5,8 +5,9 @@ Two steps with separate authority, as for the judge (D-19):
 * :func:`parse_reply` refuses only on **structure**: not JSON, not an object,
   no ``seeds`` list, an entry that is not an object. That is
   ``OUTPUT_UNREADABLE``, and the reply is not cached, because a retry may help.
-* :class:`SeedValidator` owns every **content** rule: vocabulary, age evidence,
-  quote and summary length. A readable reply that breaks them is
+* :class:`SeedValidator` owns every **content** rule: vocabulary, account
+  kind, summary length, and no diagnostic terms in the extractor's own wording
+  (D-44). ``raw_theme_terms`` are exempt: they are the source's words, verbatim. A readable reply that breaks them is
   ``VALIDATION_FAILED``, all or nothing. Its messages are ours and never echo
   the model's text.
 
@@ -75,10 +76,9 @@ class SeedValidator:
                 credibility_tier=tier,
                 retrieved_at=document.retrieved_at,
                 publication_date=document.publication_date,
+                account_kind=entry["account_kind"],
                 theme_family=entry["theme_family"],
                 raw_theme_terms=tuple(entry["raw_theme_terms"]),
-                stated_age=entry["stated_age"],
-                age_evidence=entry["age_evidence"],
                 arc_summary=entry["arc_summary"].strip(),
                 reported_phase_progression=tuple(entry["reported_phase_progression"]),
                 explicitness_candidate=entry["explicitness_candidate"],
@@ -102,20 +102,12 @@ class SeedValidator:
         missing = [k for k in _FIELDS if k not in entry]
         if missing:
             return ["missing {}".format(", ".join(missing))]
+        if entry["account_kind"] not in v.account_kinds:
+            problems.append("account_kind is not a known kind")
         if entry["theme_family"] is not None and entry["theme_family"] not in v.theme_families:
             problems.append("theme_family is not a vocabulary A code")
         if not _strings(entry["raw_theme_terms"]):
             problems.append("raw_theme_terms must be a list of strings")
-        age, evidence = entry["stated_age"], entry["age_evidence"]
-        if age is not None and (isinstance(age, bool) or not isinstance(age, int)
-                                or not 0 < age < 130):
-            problems.append("stated_age must be a whole number of years or null")
-        if age is not None and not (isinstance(evidence, str) and evidence.strip()):
-            problems.append("a stated_age must cite age_evidence")
-        if evidence is not None and (not isinstance(evidence, str)
-                                     or len(evidence) > c.max_quote_chars):
-            problems.append("age_evidence must be text of at most {} characters".format(
-                c.max_quote_chars))
         summary = entry["arc_summary"]
         if not isinstance(summary, str) or not summary.strip():
             problems.append("arc_summary is required")
@@ -132,11 +124,15 @@ class SeedValidator:
         if not _strings(entry["companion_behaviour_reported"]) or any(
                 b not in v.companion_behaviours for b in entry["companion_behaviour_reported"]):
             problems.append("companion_behaviour_reported must use the behaviour codes")
+        for field in ("arc_summary", "harm_type_candidate"):
+            text = entry[field]
+            if isinstance(text, str) and any(t in text.lower() for t in v.prohibited_terms):
+                problems.append("{} uses a diagnostic term".format(field))
         return problems
 
 
 _FIELDS = (
-    "theme_family", "raw_theme_terms", "stated_age", "age_evidence", "arc_summary",
+    "account_kind", "theme_family", "raw_theme_terms", "arc_summary",
     "reported_phase_progression", "explicitness_candidate", "harm_type_candidate",
     "companion_behaviour_reported",
 )

@@ -34,9 +34,9 @@ Nothing in this register has been decided by this foundations pack. Where a docu
 | [OD-020](#od-020) | Treatment of the inconsistent `ai_sweetheart` cases | Theme mapping, benchmark aggregates | M1 | OPEN |
 | [OD-021](#od-021) | Review of taxonomy/rubric examples after disclosed pre-seal inspection | Rubric v1.0 approval | M1 | OPEN |
 | [OD-022](#od-022) | Simulated-user model selection (pilot) | Seed pipeline S5 generation | M2 | OPEN |
-| [OD-023](#od-023) | Stakeholder approval of the older-adult (65+) scope | PROJECT_SCOPE, personas, taxonomy | M1 | OPEN |
+| [OD-023](#od-023) | Stakeholder approval of the older-adult (65+) scope | PROJECT_SCOPE, personas, taxonomy | M1 | DECIDED: withdrawn (D-43) |
 | [OD-024](#od-024) | Copyright and terms of use for source snapshots and quotations | Seed pipeline S1 | M2 | OPEN |
-| [OD-025](#od-025) | Older-adult confounds in the taxonomy | Rubric v1.0, persona design | M1 | OPEN |
+| [OD-025](#od-025) | Older-adult confounds in the taxonomy | Rubric v1.0, persona design | M1 | DECIDED: withdrawn (D-43) |
 | [OD-026](#od-026) | Hosted storage of harm-bearing content, and whether OD-014 gates Review and Label | Seed pipeline S1, S6, S7 | M2 | OPEN |
 | [OD-027](#od-027) | Coverage targets and realism sample rule | Seed pipeline S3, S6 | M2 | OPEN |
 
@@ -453,7 +453,7 @@ For `confidence`: self-reported by the judge (cheap, poorly calibrated), derived
 
 **Why it matters:** The simulated user sets the realism of the whole corpus. Its family also constrains which families the reference companion and judge may use (D-30).
 
-**Available options:** A pilot on 5 development-split seeds compares three candidates: Gemini Flash (free tier), a low-cost Claude model, and a local ~24B open-weight model. Human raters, blind to the model, rate each conversation pass/weak/fail on staying in character, holding the belief under pushback, and sounding like an older adult.
+**Available options:** A pilot on 5 development-split seeds compares three candidates: Gemini Flash (free tier), a low-cost Claude model, and a local ~24B open-weight model. Human raters, blind to the model, rate each conversation pass/weak/fail on staying in character, holding the belief under pushback, and sounding like the persona.
 
 **Evidence already available:** None. Procedure in [`SEED_PIPELINE_PLAN.md` §3.4](SEED_PIPELINE_PLAN.md#34-generate).
 
@@ -477,7 +477,9 @@ For `confidence`: self-reported by the judge (cheap, poorly calibrated), derived
 
 **Recommended owner:** Project lead with client stakeholders.
 
-**Required by:** M1. **Status:** OPEN.
+**Resolution (2026-09-24):** withdrawn. The project lead dropped the age focus entirely (D-43), so there is no narrowed population to approve.
+
+**Required by:** M1. **Status:** DECIDED.
 
 ---
 
@@ -509,7 +511,9 @@ For `confidence`: self-reported by the judge (cheap, poorly calibrated), derived
 
 **Recommended owner:** Clinical/safety adviser with the research lead.
 
-**Required by:** M1. **Status:** OPEN.
+**Resolution (2026-09-24):** withdrawn with the older-adult focus (D-43). Bereavement and circumstantial isolation can affect anyone, but that is a general taxonomy question, not this one; raise it separately if the annotation pilot shows it matters.
+
+**Required by:** M1. **Status:** DECIDED.
 
 ---
 

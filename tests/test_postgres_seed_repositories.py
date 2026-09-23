@@ -67,16 +67,6 @@ class PostgresSeedRepositoryTest(_Postgres, SeedRepositoryContract, unittest.Tes
 
         return PostgresSeedRepository(self._connection)
 
-    def test_storage_refuses_a_stated_age_without_evidence(self):
-        import psycopg
-
-        with self.assertRaises(psycopg.errors.CheckViolation):
-            self._connection.execute(
-                "INSERT INTO seeds SELECT 'raw', 1, id, content_hash, source_url, source_type, "
-                "'T1', retrieved_at, NULL, '{}', 70, NULL, 'Example.', '{}', 'explicit', NULL, "
-                "'{}', 'fake', 'deterministic', 'v', 'p', 'voc', 'tier', retrieved_at, NULL, 0 "
-                "FROM source_documents LIMIT 1")
-
 
 @unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")
 class SharedDatabaseGuard(unittest.TestCase):

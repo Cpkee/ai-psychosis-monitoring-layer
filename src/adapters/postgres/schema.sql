@@ -264,6 +264,7 @@ CREATE TABLE IF NOT EXISTS extraction_cache (
 CREATE TABLE IF NOT EXISTS seeds (
     id                           TEXT PRIMARY KEY,
     seed_version                 INTEGER NOT NULL,
+    account_kind                 TEXT NOT NULL,
     source_document_id           TEXT NOT NULL REFERENCES source_documents (id),
     content_hash                 TEXT NOT NULL,
     source_url                   TEXT NOT NULL,
@@ -272,8 +273,6 @@ CREATE TABLE IF NOT EXISTS seeds (
     retrieved_at                 TEXT NOT NULL,
     theme_family                 TEXT,
     raw_theme_terms              TEXT[] NOT NULL,
-    stated_age                   INTEGER,
-    age_evidence                 TEXT,
     arc_summary                  TEXT NOT NULL,
     reported_phase_progression   TEXT[] NOT NULL,
     explicitness_candidate       TEXT NOT NULL,
@@ -289,9 +288,14 @@ CREATE TABLE IF NOT EXISTS seeds (
     publication_date             TEXT,
     ordinal                      INTEGER NOT NULL,
 
-    -- A stated age must cite the words that state it; an unstated age is NULL,
-    -- which never means "not an older adult".
-    CONSTRAINT seeds_age_cites_evidence CHECK (stated_age IS NULL OR age_evidence IS NOT NULL),
-    CONSTRAINT seeds_age_plausible CHECK (stated_age IS NULL OR stated_age BETWEEN 1 AND 129),
     CONSTRAINT seeds_one_position_per_document UNIQUE (source_document_id, ordinal)
 );
+
+-- D-43: age is no longer extracted. Removes the columns (and their CHECKs) from
+-- databases created before the change.
+ALTER TABLE seeds DROP COLUMN IF EXISTS stated_age;
+ALTER TABLE seeds DROP COLUMN IF EXISTS age_evidence;
+
+-- D-44: account kind. Databases created before it get the column without NOT
+-- NULL (existing rows have no kind); the seed validator requires it on write.
+ALTER TABLE seeds ADD COLUMN IF NOT EXISTS account_kind TEXT;
