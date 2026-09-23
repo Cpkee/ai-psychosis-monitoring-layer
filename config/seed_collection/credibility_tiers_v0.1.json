@@ -1,0 +1,15 @@
+{
+  "credibility_tier_version": "credibility_tiers_v0.1",
+  "status": "draft",
+  "description": "Credibility tier by source type (D-25). Assigned by this table, never by a model. Provisional.",
+  "tiers": {
+    "peer_reviewed_article": "T1",
+    "clinical_case_report": "T1",
+    "news_named_sources": "T2",
+    "preprint": "T2",
+    "legal_filing": "T2",
+    "news_other": "T3",
+    "secondary_report": "T3",
+    "incident_database": "T3"
+  }
+}

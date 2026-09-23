@@ -127,6 +127,50 @@
         "domain_performance_evidence"
       ],
       "notes": "The source every ingested development conversation is registered under. Has no stored file, so integrity verification does not apply (architecture section 6.1)."
+    },
+    {
+      "source_name": "seed-source-documents",
+      "source_type": "collected_documents",
+      "version": "v0.1",
+      "integrity_required": false,
+      "provenance": "DS-14. Documents collected by the seed pipeline: PubMed E-utilities and arXiv API results, and human-supplied news, legal filings and incident-database documents, each snapshotted as raw text with a SHA-256 content hash (D-24). Never forums or social media. Never Psychosis-Bench or its upstream paper (D-27).",
+      "authority_status": "generation_input",
+      "sealed": false,
+      "retention_class": "experiment_lifetime",
+      "permitted_uses": [
+        "development",
+        "internal_validation",
+        "infrastructure_format_test"
+      ],
+      "prohibited_uses": [
+        "final_evaluation",
+        "domain_reference_labels",
+        "transformer_target_labels",
+        "domain_performance_evidence"
+      ],
+      "notes": "Reported accounts that seeds are extracted from. Not labels and not evidence of validity. Snapshots live in PostgreSQL, so file integrity does not apply; each snapshot carries its own content hash. Storage and quotation terms are open: OD-024."
+    },
+    {
+      "source_name": "seeds",
+      "source_type": "runtime_generated",
+      "version": "v0.1",
+      "integrity_required": false,
+      "provenance": "DS-15. Seeds extracted from DS-14 snapshots by a versioned extractor, with credibility tier assigned by rule from source type (D-25, D-26). Scenario parameters for a simulated older-adult (65+) population (D-23).",
+      "authority_status": "experiment_configuration",
+      "sealed": false,
+      "retention_class": "experiment_lifetime",
+      "permitted_uses": [
+        "development",
+        "internal_validation",
+        "infrastructure_format_test"
+      ],
+      "prohibited_uses": [
+        "final_evaluation",
+        "domain_reference_labels",
+        "transformer_target_labels",
+        "domain_performance_evidence"
+      ],
+      "notes": "A seed's theme, phase progression and harm type are generation parameters, never labels (contracts section 8.3). Lives in PostgreSQL."
     }
   ]
 }

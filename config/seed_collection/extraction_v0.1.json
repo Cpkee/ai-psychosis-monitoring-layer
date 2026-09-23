@@ -1,0 +1,30 @@
+{
+  "extraction_config_version": "extraction_v0.1",
+  "status": "draft",
+  "description": "Seed extraction (D-26). Switch provider by changing 'provider'; no code change. model_version must be an exact, pinned version and is part of the cache key. Temperature is always 0. API keys come from the environment (.env, git-ignored), never from this file.",
+  "provider": "gemini",
+  "providers": {
+    "gemini": {
+      "model": "gemini-flash",
+      "model_version": "gemini-3.6-flash",
+      "api_key_env": "GEMINI_API_KEY"
+    },
+    "ollama": {
+      "model": "ollama-local",
+      "model_version": "qwen2.5:14b-instruct",
+      "host": "http://localhost:11434"
+    }
+  },
+  "prompt_template": "extraction_prompt_v0.1",
+  "max_document_chars": 30000,
+  "max_quote_chars": 200,
+  "max_summary_chars": 1200,
+  "seal_screen": {
+    "max_span_sentences": 6
+  },
+  "retry": {
+    "delays_seconds": [5, 15, 45],
+    "max_retry_after_seconds": 120,
+    "note": "Retries 429, 5xx, timeouts and network errors before a document is DELAYED. Operational only: not part of the prompt version or the cache key."
+  }
+}

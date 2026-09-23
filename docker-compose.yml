@@ -2,10 +2,15 @@
 # architecture.md section 7.1: PostgreSQL is the durable source of truth.
 #
 #   docker compose up -d
-#   export DATABASE_URL=postgresql://apml:apml@localhost:5433/apml
+#   export DATABASE_URL=postgresql://apml:apml@localhost:5433/apml            # working data (CLI)
+#   export TEST_DATABASE_URL=postgresql://apml:apml@localhost:5433/apml_test  # tests, walkthrough
 #
-# Contract tests skip when DATABASE_URL is unset, so the governance and seal
-# tests remain runnable with no dependencies and no database.
+# Two databases (D-41): tests and the walkthrough truncate tables, so they use
+# apml_test and refuse any database not named *_test. The working database keeps
+# collected snapshots, cached extractor replies and seeds.
+#
+# Contract tests skip when TEST_DATABASE_URL is unset, so the governance and
+# seal tests remain runnable with no dependencies and no database.
 
 services:
   postgres:
@@ -19,6 +24,8 @@ services:
       - "5433:5432"
     volumes:
       - apml-pgdata:/var/lib/postgresql/data
+      # Creates apml_test on a fresh volume only; see the file for existing volumes.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U apml -d apml"]
       interval: 3s

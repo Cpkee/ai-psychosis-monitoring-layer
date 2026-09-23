@@ -19,7 +19,7 @@ The annotation pilot ([`ANNOTATION_GUIDE.md` §9](ANNOTATION_GUIDE.md#9-pilot-an
 
 - It is **independent of Psychosis-Bench** ([`PROJECT_SCOPE.md` §7](PROJECT_SCOPE.md#7-data-source-boundaries)).
 - It is **grounded in documented cases**, so scenarios are not only what a generator model imagines.
-- It is **balanced** across theme families, explicitness, harm types, older-adult age bands and benign hard negatives.
+- It is **balanced** across theme families, explicitness, harm types and benign hard negatives. Every simulated user is an older adult (65+); there are no age bands (D-23).
 - It is **traceable** from any conversation back to a source document, a credibility tier and every model and prompt version involved.
 
 No such corpus exists. The Synthetic Scenario Engine (DS-02) and Simulated User (DS-03) are specified but have no module. This plan builds them, with a documented source layer underneath.
@@ -122,7 +122,7 @@ Every fetched document is converted to raw text and stored with its SHA-256 `con
 | `publication_date`, `retrieved_at` | ISO-8601 `TEXT` (D-8) |
 | `theme_family` | **Vocabulary A only** (the three README families), or `null` if the account fits none. Never a Psychosis-Bench label. |
 | `raw_theme_terms` | The source's own words for the theme, kept verbatim |
-| `older_adult_evidence` | Stated age or age band, with a short evidence span; `null` if not stated. `null` is not "not an older adult". |
+| `older_adult_evidence` | Stated age, with a short evidence span; `null` if not stated. `null` is not "not an older adult". Used only for the relevance check (§3.2), never to band or stratify. |
 | `arc_summary` | A paraphrased course of the reported interaction. Quotations are limited to short evidence spans (OD-024). |
 | `reported_phase_progression` | Which of the four simulation phases the account describes: a generation parameter, **not a label** |
 | `explicitness_candidate`, `harm_type_candidate` | Generation parameters, not labels |
@@ -149,7 +149,7 @@ The decision records the reviewer's identity and a timestamp (§4.3). A seed mar
 
 A person picks seeds with the `seeds choose` CLI, which shows a **coverage matrix**:
 
-> theme family × explicitness × age band (65–74 · 75–84 · 85+) × harm type × benign hard negative, with credibility tier shown per cell
+> theme family × explicitness × harm type × benign hard negative, with credibility tier shown per cell
 
 - **Balance is advisory (D-35).** Targets live in versioned config (`coverage_targets_v0.1`). The CLI warns on imbalance. Any gap the chooser accepts is **written into the selection record**, so it shows up in every report that uses the selection.
 - **The split is assigned here, by seed, before any labelling (D-34):** `gold`, `silver` or `development`. No seed straddles two splits. The 5 simulated-user pilot seeds (§3.4) are always `development`.
@@ -159,7 +159,7 @@ A person picks seeds with the `seeds choose` CLI, which shows a **coverage matri
 
 The Scenario Engine turns a chosen seed into complete conversations.
 
-**Personas (D-23).** A new older-adult persona set, 65+, banded 65–74 / 75–84 / 85+, authored or generated for this domain and versioned. **DS-04 MindEval personas are not used.** Persona attributes are generation inputs and never labels.
+**Personas (D-23).** A new older-adult persona set. Every persona is 65 or over, with **no age bands** for now; authored or generated for this domain and versioned. **DS-04 MindEval personas are not used.** Persona attributes are generation inputs and never labels.
 
 **Scenario spec.** Seed + persona + companion condition + sample number → a scenario record with the [contracts §4.3](DATA_SOURCES_AND_CONTRACTS.md#43-runs-scenario-and-companion-condition) fields (`theme_family`, `intended_phase_progression`, `explicitness`, `intended_harm_type`, `benign_hard_negative`, generator versions, `seed`) plus `seed_id` and `seed_version`.
 
@@ -222,15 +222,15 @@ These are **realism ratings of the generator**, not assessments of the conversat
 
 ## 4. Shared storage (D-28, D-29)
 
-### 4.1 Two databases
+### 4.1 Three databases
 
-| | Local (`DATABASE_URL`) | Shared (`SHARED_DATABASE_URL`) |
-|---|---|---|
-| Where | Docker, per person | One hosted free-tier PostgreSQL (for example, Neon or Supabase) |
-| Used by | Development, **all tests**, `scripts/walkthrough.py` | Official pipeline runs only |
-| Holds | Anything | Seeds, snapshots (text + hash + URL), caches, conversations, reviews, selections, labels, spend ledger |
+| | Local test (`TEST_DATABASE_URL`) | Local working (`DATABASE_URL`) | Shared (`SHARED_DATABASE_URL`) |
+|---|---|---|---|
+| Where | Docker, per person: `apml_test` | Docker, per person: `apml` | One hosted free-tier PostgreSQL (for example, Neon or Supabase) |
+| Used by | **All tests**, `scripts/walkthrough.py` | Development runs of `scripts/seeds.py` | Official pipeline runs only |
+| Holds | Nothing worth keeping; truncated on every run | Local snapshots, cached replies, seeds | Seeds, snapshots (text + hash + URL), caches, conversations, reviews, selections, labels, spend ledger |
 
-- **Tests and the walkthrough refuse to run** if `DATABASE_URL` equals `SHARED_DATABASE_URL`. D-10's table discovery and `TRUNCATE`, and the walkthrough's reset, must never reach the shared DB.
+- **Anything that truncates refuses a database not named `*_test`** (D-41), and refuses the shared database whatever its name (D-28). D-10's table discovery and `TRUNCATE`, and the walkthrough's reset, can reach only `apml_test`.
 - A shared-DB guard **refuses `DROP`, `TRUNCATE` and reset operations** against the shared URL.
 - Schema changes to the shared DB are made only through **reviewed migration files**, applied by **one designated person**. The local DB can keep using `schema.sql`. A test asserts that the migrations and `schema.sql` produce the same schema.
 - Credentials live only in the gitignored `.env`.
@@ -257,8 +257,8 @@ At each milestone, a **release bundle** is exported. It is content-addressed, co
 | Change | Where |
 |---|---|
 | **Target population: older adults, 65+** (D-23). "Real user conversations are not used" still holds. | [`PROJECT_SCOPE.md`](PROJECT_SCOPE.md) §2 and §7 amendment. Stakeholder sign-off is tracked in [OD-023](OPEN_DECISIONS.md#od-023). |
-| New source **DS-12, seed source documents**: `generation_input`; permitted for development and internal validation; prohibited as reference labels | [`DATA_SOURCES_AND_CONTRACTS.md` §3](DATA_SOURCES_AND_CONTRACTS.md#3-data-source-register), `config/data_sources.json` |
-| New source **DS-13, seeds**: `experiment_configuration`, not a label source | as above |
+| New source **DS-14, seed source documents**: `generation_input`; permitted for development and internal validation; prohibited as reference labels, training targets, evidence and final evaluation; every other purpose fails closed | [`DATA_SOURCES_AND_CONTRACTS.md` §3](DATA_SOURCES_AND_CONTRACTS.md#3-data-source-register), `config/data_sources.json` |
+| New source **DS-15, seeds**: `experiment_configuration`, not a label source; same permissions as DS-14 | as above |
 | DS-02 producer: "planned" becomes the Scenario Engine; DS-03 gains the model-family rule | as above |
 | The seal screen joins the dependency-free governance suite (it needs only `hashlib` and the manifest) | `tests/`, D-5 unchanged |
 | Silver-label isolation test | governance suite |
@@ -271,8 +271,8 @@ Each increment leaves the suite green in both modes and ends with a **CLI comman
 
 | # | Increment | Delivers | Caller |
 |---|---|---|---|
-| **S0** | Scope and registration | PROJECT_SCOPE amendment drafted; DS-12/DS-13 registered; D-records and ODs written (this pass) | — (documents and config only) |
-| **S1** | Collect | `SourceDocumentRepository`, `ExtractionCacheRepository`, `SeedRepository`; PubMed/arXiv search with query log; URL/PDF input file; snapshotting; **pre-extraction seal screen**; extractor provider seam (Gemini, Ollama); tier rule; per-document resume; shared-DB guard, migrations and test refusal | `seeds collect` |
+| **S0** ✅ | Scope and registration | PROJECT_SCOPE §1.2 and §7 amended; DS-14/DS-15 registered in the contracts and in `config/data_sources.json`, with governance tests; D-records and ODs written | Dataset Use Gate (config is executable) |
+| **S1** ✅ | Collect | `SourceDocumentRepository`, `ExtractionCacheRepository`, `SeedRepository`; PubMed/arXiv search with query log; URL/file input (**no PDFs yet**, D-40); snapshotting; **pre-extraction seal screen**; extractor provider seam (Gemini, Ollama, fake); tier rule; per-document resume; shared-DB guard and test refusal (**migrations wait for the shared DB**, D-40) | `seeds collect`, `seeds extract`, `seeds status` |
 | **S2** | Filter | Post-extraction overlap screen and metadata flags; relevance-check records | `seeds screen`, `seeds relevance` |
 | **S3** | Choose | Coverage matrix, `coverage_targets_v0.1`, selection records, **split by seed**, exposure log | `seeds choose` |
 | **S4** | Scenario and persona | 65+ persona set, Scenario Engine, derived benign counterparts, `ScenarioRepository` | `scenarios build` |

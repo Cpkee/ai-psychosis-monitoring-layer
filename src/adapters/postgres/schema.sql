@@ -158,3 +158,140 @@ CREATE TABLE IF NOT EXISTS trajectory_updates (
 
 CREATE INDEX IF NOT EXISTS trajectory_by_session
     ON trajectory_updates (session_id, created_at);
+
+-- Alerts (architecture §6.9, §7.2 extended per D-38). An alert asks a person to
+-- review a conversation; it is not a diagnosis and triggers nothing.
+CREATE TABLE IF NOT EXISTS alerts (
+    id                          TEXT PRIMARY KEY,
+    session_id                  TEXT NOT NULL REFERENCES sessions (id),
+    through_turn_id             TEXT NOT NULL REFERENCES turns (id),
+    rule_set_version            TEXT NOT NULL,
+    rule_id                     TEXT NOT NULL,
+    status                      TEXT NOT NULL,
+    severity                    TEXT,
+    requires_manual_review      BOOLEAN NOT NULL,
+    contributing_assessment_ids TEXT[] NOT NULL,
+    trajectory_update_id        TEXT NOT NULL REFERENCES trajectory_updates (id),
+    triggering_signal_score_ids TEXT[] NOT NULL,
+    evidence_turn_ids           TEXT[] NOT NULL,
+    context_categories_present  TEXT[] NOT NULL,
+    context_modifier_applied    TEXT,
+    explanation                 TEXT NOT NULL,
+    judge_model_version         TEXT NOT NULL,
+    rubric_version              TEXT NOT NULL,
+    taxonomy_version            TEXT NOT NULL,
+    trajectory_policy_version   TEXT NOT NULL,
+    created_at                  TEXT NOT NULL,
+    -- Deferred: a supersession names an alert saved later in the same
+    -- transaction, and the reference must hold by commit.
+    superseded_by               TEXT REFERENCES alerts (id) DEFERRABLE INITIALLY DEFERRED,
+
+    CONSTRAINT alerts_status_valid CHECK (status IN ('raised', 'indeterminate')),
+    CONSTRAINT alerts_severity_valid
+        CHECK (severity IS NULL OR severity IN ('low', 'medium', 'high', 'critical')),
+    -- An indeterminate outcome has no severity, and a raised alert always has one.
+    CONSTRAINT alerts_severity_iff_raised
+        CHECK ((severity IS NULL) = (status = 'indeterminate')),
+    -- §4.7: an alert that cannot say what it was derived from is invalid.
+    -- cardinality, not array_length: array_length of an empty array is NULL,
+    -- and a CHECK that evaluates to NULL passes.
+    CONSTRAINT alerts_cite_evidence CHECK (cardinality(evidence_turn_ids) >= 1),
+    CONSTRAINT alerts_name_their_scores
+        CHECK (cardinality(triggering_signal_score_ids) >= 1),
+    CONSTRAINT alerts_name_their_assessments
+        CHECK (cardinality(contributing_assessment_ids) >= 1),
+    CONSTRAINT alerts_not_self_superseded CHECK (superseded_by IS NULL OR superseded_by <> id),
+    -- §13: re-running evaluation must not duplicate an alert.
+    CONSTRAINT alerts_one_per_evaluation
+        UNIQUE (trajectory_update_id, rule_set_version, rule_id)
+);
+
+-- One active alert per session and rule; a later decision supersedes it.
+CREATE UNIQUE INDEX IF NOT EXISTS alerts_one_active_per_rule
+    ON alerts (session_id, rule_id) WHERE superseded_by IS NULL;
+
+-- Seed pipeline, S1 Collect (SEED_PIPELINE_PLAN.md §3.1). DS-14 snapshots and
+-- DS-15 seeds: generation inputs, never labels.
+CREATE TABLE IF NOT EXISTS seed_query_log (
+    id                   TEXT PRIMARY KEY,
+    source               TEXT NOT NULL,
+    query_id             TEXT NOT NULL,
+    query_text           TEXT NOT NULL,
+    query_config_version TEXT NOT NULL,
+    executed_at          TEXT NOT NULL,
+    result_ids           TEXT[] NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS source_documents (
+    id               TEXT PRIMARY KEY,
+    -- A snapshot is identified by exactly what it contains.
+    content_hash     TEXT NOT NULL UNIQUE,
+    source_type      TEXT NOT NULL,
+    source_url       TEXT NOT NULL,
+    title            TEXT NOT NULL,
+    text             TEXT NOT NULL,
+    retrieved_at     TEXT NOT NULL,
+    fetcher_version  TEXT NOT NULL,
+    external_id      TEXT,
+    publication_date TEXT,
+    query_log_id     TEXT REFERENCES seed_query_log (id),
+    status           TEXT NOT NULL,
+    failure_code     TEXT,
+    status_detail    TEXT,
+
+    CONSTRAINT documents_hash_is_sha256 CHECK (length(content_hash) = 64),
+    CONSTRAINT documents_status_valid CHECK (status IN
+        ('SNAPSHOTTED', 'SCREENED', 'EXTRACTED', 'BLOCKED_SEALED', 'DELAYED', 'FAILED')),
+    CONSTRAINT documents_failure_code_iff_failed
+        CHECK ((failure_code IS NOT NULL) = (status = 'FAILED'))
+);
+
+CREATE INDEX IF NOT EXISTS documents_unfinished ON source_documents (status, retrieved_at);
+
+-- Immutable, keyed by everything that determines a reply. Shared by the team
+-- so identical inputs give identical seeds without calling the model again.
+CREATE TABLE IF NOT EXISTS extraction_cache (
+    content_hash   TEXT NOT NULL REFERENCES source_documents (content_hash),
+    prompt_version TEXT NOT NULL,
+    model_version  TEXT NOT NULL,
+    provider       TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    reply_text     TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    PRIMARY KEY (content_hash, prompt_version, model_version)
+);
+
+CREATE TABLE IF NOT EXISTS seeds (
+    id                           TEXT PRIMARY KEY,
+    seed_version                 INTEGER NOT NULL,
+    source_document_id           TEXT NOT NULL REFERENCES source_documents (id),
+    content_hash                 TEXT NOT NULL,
+    source_url                   TEXT NOT NULL,
+    source_type                  TEXT NOT NULL,
+    credibility_tier             TEXT NOT NULL,
+    retrieved_at                 TEXT NOT NULL,
+    theme_family                 TEXT,
+    raw_theme_terms              TEXT[] NOT NULL,
+    stated_age                   INTEGER,
+    age_evidence                 TEXT,
+    arc_summary                  TEXT NOT NULL,
+    reported_phase_progression   TEXT[] NOT NULL,
+    explicitness_candidate       TEXT NOT NULL,
+    harm_type_candidate          TEXT,
+    companion_behaviour_reported TEXT[] NOT NULL,
+    extraction_provider          TEXT NOT NULL,
+    extraction_model             TEXT NOT NULL,
+    extraction_model_version     TEXT NOT NULL,
+    extraction_prompt_version    TEXT NOT NULL,
+    vocabulary_version           TEXT NOT NULL,
+    credibility_tier_version     TEXT NOT NULL,
+    created_at                   TEXT NOT NULL,
+    publication_date             TEXT,
+    ordinal                      INTEGER NOT NULL,
+
+    -- A stated age must cite the words that state it; an unstated age is NULL,
+    -- which never means "not an older adult".
+    CONSTRAINT seeds_age_cites_evidence CHECK (stated_age IS NULL OR age_evidence IS NOT NULL),
+    CONSTRAINT seeds_age_plausible CHECK (stated_age IS NULL OR stated_age BETWEEN 1 AND 129),
+    CONSTRAINT seeds_one_position_per_document UNIQUE (source_document_id, ordinal)
+);

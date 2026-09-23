@@ -4,7 +4,7 @@
     .venv/bin/python scripts/walkthrough.py
 
 Ingests a short synthetic conversation, scores it with the deterministic fake
-judge, and prints the trajectory a reviewer would be shown.
+judge, and prints the trajectory and any alert a reviewer would be shown.
 
 **The scores are canned.** The fake judge returns exactly what this file tells
 it to, so the numbers prove the plumbing and nothing about the system's ability
@@ -14,21 +14,26 @@ This script exists because there is no API and no reviewer interface yet, so it
 is currently the only human-readable view of the pipeline. It is superseded by
 the reviewer view at increment 8.
 
-It TRUNCATEs every table before running. Point DATABASE_URL at a scratch
-database, never one holding results you care about.
+It TRUNCATEs every conversation and analysis table before running, so it runs
+against the test database (TEST_DATABASE_URL, default apml_test) and refuses
+any database not named *_test (D-41) as well as the shared one (D-28).
 """
 import itertools, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.adapters.judge.fake import DeterministicFakeJudgeAdapter
+from src.adapters.postgres.alerts import PostgresAlertRepository
 from src.adapters.postgres.analysis import PostgresJobRepository
 from src.adapters.postgres.assessments import PostgresAssessmentRepository
-from src.adapters.postgres.connection import apply_schema, connect, unit_of_work
+from src.adapters.postgres.connection import (
+    apply_schema, connect, refuse_unless_test_database, unit_of_work)
 from src.adapters.postgres.conversations import PostgresConversationRepository
 from src.adapters.postgres.trajectories import PostgresTrajectoryRepository
 from src.domain.analysis.judge import RawJudgeResult, RawSignalScore
 from src.domain.analysis.records import ArtefactVersions
 from src.domain.conversations.records import Turn
+from src.modules.alerting.engine import AlertEngine
+from src.modules.alerting.rules import load_rule_set
 from src.modules.analysis.definitions import AnalyticalDefinitions
 from src.modules.analysis.dispatcher import AnalysisJobDispatcher
 from src.modules.analysis.runner import AnalysisRunner
@@ -38,7 +43,7 @@ from src.modules.ingestion.orchestrator import (
 from src.modules.source_registry.gate import DatasetUseGate, InMemoryAuditSink
 from src.modules.trajectory.engine import TrajectoryEngine
 
-URL = os.environ.get("DATABASE_URL", "postgresql://apml:apml@localhost:5433/apml")
+URL = os.environ.get("TEST_DATABASE_URL", "postgresql://apml:apml@localhost:5433/apml_test")
 DEFS = AnalyticalDefinitions()
 TAX = DEFS.taxonomy("taxonomy_v0.1")
 VERSIONS = ArtefactVersions("taxonomy_v0.1", "scale_0_3_v0.1", "rubric_v0.1",
@@ -77,8 +82,9 @@ def judge_result(request):
 print("Using {}".format(URL))
 print("This resets every table in that database.\n")
 connection = connect(URL)
-apply_schema(connection)
-connection.execute("TRUNCATE trajectory_updates, assessment_evidence, signal_scores, "
+refuse_unless_test_database(connection, "reset")  # D-41
+apply_schema(connection)  # refuses the shared database (D-28) before anything is truncated
+connection.execute("TRUNCATE alerts, trajectory_updates, assessment_evidence, signal_scores, "
                    "assessments, analysis_jobs, turns, sessions CASCADE")
 connection.commit()
 connection.close()
@@ -131,9 +137,11 @@ with unit_of_work(URL) as conn:
         validator=ResultValidator(DEFS, lambda: "a-{}".format(next(ids)), clock),
         trajectories=PostgresTrajectoryRepository(conn),
         engine=TrajectoryEngine(DEFS.trajectory_policy("trajectory_v0.1")),
+        alerts=PostgresAlertRepository(conn),
+        alert_engine=AlertEngine(load_rule_set("alert_rules_v0.1")),
         definitions=DEFS, rubric_instructions="example",
         prompt_configuration_version="judge_v0_1", clock=clock,
-        new_id=lambda: "traj-{}".format(next(ids)))
+        new_id=lambda: "derived-{}".format(next(ids)))
     for job in jobs.list_for_session("demo-1"):
         if job.through_turn_id in SCRIPT:
             done = runner.run(job.id)
@@ -158,4 +166,26 @@ print("   gaps              : {}".format(harm.null_count))
 rows = conn.execute("SELECT signal_code, score_value, specificity_markers FROM signal_scores "
                     "WHERE signal_code='harm_intent' ORDER BY id").fetchall()
 print("   harm_intent scores: {}".format(rows))
+
+print()
+print("=" * 72)
+print("4. ALERT      — the versioned rule applied to the scores and trajectory")
+print("=" * 72)
+alerts = PostgresAlertRepository(conn).list_for_session("demo-1")
+if not alerts:
+    print("   no alert raised")
+for alert in alerts:
+    d = alert.decision
+    print("   {} {}".format(alert.id, "(superseded by {})".format(alert.superseded_by)
+                          if alert.superseded_by else "(active)"))
+    print("   rule              : {} ({})".format(d.rule_id, d.rule_set_version))
+    print("   outcome           : {}, severity {}, manual review {}".format(
+        d.status, d.severity, d.requires_manual_review))
+    print("   evidence turns    : {}".format(", ".join(d.evidence_turn_ids)))
+    print("   scores used       : {}".format(", ".join(d.triggering_signal_score_ids)))
+    print("   trajectory used   : {}".format(d.trajectory_update_id))
+    print("   context modifier  : {}".format(d.context_modifier_applied))
+    print("   explanation       : {}".format(d.explanation))
+print("   (A request for human review of the conversation. Not a diagnosis; "
+      "it triggers nothing.)")
 conn.close()

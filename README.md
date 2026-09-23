@@ -47,7 +47,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python scripts/walkthrough.py
 ```
 
-Ingests a short synthetic conversation, scores it with the deterministic fake judge, and prints the resulting trajectory. The scores are canned — it demonstrates the pipeline, not any ability to assess a conversation. It resets every table first, so point `DATABASE_URL` at a scratch database.
+Ingests a short synthetic conversation, scores it with the deterministic fake judge, and prints the resulting trajectory. The scores are canned — it demonstrates the pipeline, not any ability to assess a conversation. It resets every conversation and analysis table first, so it runs against the test database (`TEST_DATABASE_URL`, default `apml_test`) and refuses any database not named `*_test`.
 
 ## Running the full suite
 
@@ -56,11 +56,17 @@ The repository contract tests need PostgreSQL. Everything else does not, and nev
 ```bash
 docker compose up -d
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-DATABASE_URL=postgresql://apml:apml@localhost:5433/apml \
+TEST_DATABASE_URL=postgresql://apml:apml@localhost:5433/apml_test \
   .venv/bin/python -m unittest discover -s tests -t .
 ```
 
-Without `DATABASE_URL` the PostgreSQL tests skip and the rest still run, so the seal stays verifiable with no setup at all.
+Without `TEST_DATABASE_URL` the PostgreSQL tests skip and the rest still run, so the seal stays verifiable with no setup at all.
+
+Tests truncate every table, so they use their own database, `apml_test`, and refuse any database not named `*_test`. Working data (collected documents, cached extractor replies, seeds) lives in `apml`, which `scripts/seeds.py` reads from `DATABASE_URL`. On a Docker volume created before `apml_test` existed, create it once:
+
+```bash
+docker exec apml-postgres psql -U apml -d apml -c "CREATE DATABASE apml_test OWNER apml"
+```
 
 See [`data/README.md`](data/README.md) for permitted use of every data file, and [`BENCHMARK_SEAL.md`](docs/foundations/BENCHMARK_SEAL.md) for provenance, the access record and the full control list.
 

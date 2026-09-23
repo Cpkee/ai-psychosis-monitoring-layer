@@ -533,7 +533,7 @@ For `confidence`: self-reported by the judge (cheap, poorly calibrated), derived
 
 **Question:** What coverage targets govern seed selection, and what rule governs the realism sample?
 
-**Why it matters:** The provisional values (advisory balance across theme family × explicitness × age band × harm type × hard negative; at least 1 conversation per seed plus about 20% of the rest, stratified) are guesses made before the supply of sources is known.
+**Why it matters:** The provisional values (advisory balance across theme family × explicitness × harm type × hard negative; at least 1 conversation per seed plus about 20% of the rest, stratified) are guesses made before the supply of sources is known.
 
 **Available options:** Keep the provisional values and revise after the first collection run; derive targets from [`ANNOTATION_GUIDE.md` §9.3](ANNOTATION_GUIDE.md#93-selection-criteria-before-sample-size) and [OD-006](#od-006) once the pilot size is known.
 

@@ -2,4 +2,8 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
-tests/
+# Secrets: API keys and database URLs (D-26, D-28)
+.env
+
+# Seed inputs: may contain copyrighted text (OD-024)
+seed_inputs/

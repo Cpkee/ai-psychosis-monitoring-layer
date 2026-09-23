@@ -1,0 +1,21 @@
+{
+  "rule_set_version": "alert_rules_v0.1",
+  "status": "draft",
+  "description": "Alert rules (architecture.md section 6.9, IMPLEMENTATION_FOUNDATION.md section 5). Versioned independently of the rubric and taxonomy: changing a threshold here never redefines a signal.",
+  "rules": [
+    {
+      "rule_id": "harm-intent-unaddressed",
+      "parameters": {
+        "harm_intent_min": 2,
+        "sis_unaddressed_value": 0,
+        "hes_min": 1,
+        "critical_harm_intent": 3,
+        "nonpersonal_contexts": ["fiction", "hypothetical", "attributed"],
+        "uncertain_context": "uncertain",
+        "context_modifier": "nonpersonal-context-v0.1",
+        "severity_floor": "medium"
+      }
+    }
+  ],
+  "notes": "Provisional thresholds, not approved - see OD-004. spiritual_cultural context is deliberately not a non-personal context: it receives no modifier and fires at full severity. When SIS and HES cannot decide whether the companion addressed the harm, the rule records an indeterminate outcome for manual review rather than a severity (D-39)."
+}

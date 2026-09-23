@@ -289,6 +289,44 @@ Derived rule (tested by [AT-8](IMPLEMENTATION_FOUNDATION.md#6-acceptance-tests))
 | **Version / provenance fields** | Keys namespaced with the schema/app version so a deploy cannot read stale-shaped values |
 | **Lifecycle** | Ephemeral; flushable at any time without data loss (AT-8) |
 
+### DS-14 — Seed source documents
+
+| Field | Value |
+|---|---|
+| **Source ID / name** | `DS-14` — collected source documents (`seed-source-documents@v0.1`) |
+| **Type** | Raw text snapshots of published accounts, each with a SHA-256 content hash, source URL and retrieval time |
+| **Producer** | Seed collector ([`SEED_PIPELINE_PLAN.md` §3.1](SEED_PIPELINE_PLAN.md#31-collect)): PubMed E-utilities and arXiv API (every query logged), plus a human-supplied URL/PDF file for news, legal filings and incident databases. **Never forums or social media** (D-24). |
+| **Consumer** | Seed extractor |
+| **Purpose** | Ground synthetic scenarios in documented cases rather than only in what a generator imagines |
+| **Permitted training use** | Not permitted (fails closed) |
+| **Permitted validation use** | Permitted as generation input for the development and validation corpus. **Prohibited as reference labels or as evidence of validity.** |
+| **Permitted final-evaluation use** | **Prohibited** |
+| **Authority / ground-truth status** | Not authoritative. A reported account is not a label, and says nothing about any person's condition. |
+| **Storage location** | Shared PostgreSQL (D-28); original PDFs optionally in a shared Drive folder, referenced by hash |
+| **Retention expectation** | Retained with the experiments whose seeds came from it |
+| **Access constraints** | Project team. What may be stored and quoted is open: [OD-024](OPEN_DECISIONS.md#od-024). Hosted storage of harm-bearing content: [OD-026](OPEN_DECISIONS.md#od-026). |
+| **Version / provenance fields** | `content_hash`, `source_url`, `source_type`, `retrieved_at`, fetcher version, query-log entry |
+| **Lifecycle** | Immutable per hash. A changed page is a new snapshot, never an edit. The Psychosis-Bench screen runs **before** any extraction and blocks matches (D-27). |
+
+### DS-15 — Seeds
+
+| Field | Value |
+|---|---|
+| **Source ID / name** | `DS-15` — seeds (`seeds@v0.1`) |
+| **Type** | Structured scenario parameters extracted from a DS-14 snapshot: theme family (vocabulary A only), paraphrased arc, reported phase progression, harm type, explicitness, credibility tier |
+| **Producer** | Versioned extractor (provider seam, cached by document hash + prompt version + model version; D-26). Credibility tier assigned **by rule from source type**, never by the model (D-25). |
+| **Consumer** | Seed filter and selection; Synthetic Scenario Engine (DS-02) |
+| **Purpose** | The input from which scenarios for a simulated **older-adult (65+)** population are built (D-23) |
+| **Permitted training use** | Not permitted (fails closed) |
+| **Permitted validation use** | Permitted as generation input. **Prohibited as reference labels or as evidence of validity.** |
+| **Permitted final-evaluation use** | **Prohibited** |
+| **Authority / ground-truth status** | Not authoritative. A seed's theme, phase progression and harm type are **generation parameters, not labels** (§8.3). |
+| **Storage location** | Shared PostgreSQL (D-28) |
+| **Retention expectation** | Retained with the experiments that used them; every version kept |
+| **Access constraints** | Project team. Split assignment (gold/silver/development) and the exposure log govern who may later annotate its conversations (D-34). |
+| **Version / provenance fields** | `seed_id`, `seed_version`, `source_document_id`, `content_hash`, extraction provider, model version, prompt version, schema version |
+| **Lifecycle** | Versioned. A revision after realism review creates a new version (D-32). |
+
 ---
 
 ## 4. Data contracts

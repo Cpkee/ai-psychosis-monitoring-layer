@@ -55,16 +55,18 @@ The two `ai_sweetheart` cases have inconsistent labels. **That inconsistency mus
 ```bash
 # Governance and seal tests — bare interpreter, no dependencies, no database.
 # This must never grow a dependency.
-python3 -m unittest tests.test_dataset_use_gate tests.test_benchmark_seal
+python3 -m unittest tests.test_dataset_use_gate tests.test_benchmark_seal tests.test_seal_screen
 
 # Full suite.
 docker compose up -d
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-DATABASE_URL=postgresql://apml:apml@localhost:5433/apml \
+TEST_DATABASE_URL=postgresql://apml:apml@localhost:5433/apml_test \
   .venv/bin/python -m unittest discover -s tests -t .
 ```
 
-Without `DATABASE_URL` the PostgreSQL tests skip and everything else runs. **248 tests**; 48 skip without a database.
+Without `TEST_DATABASE_URL` the PostgreSQL tests skip and everything else runs. **421 tests**; 83 skip without a database (82 PostgreSQL, plus the opt-in live extractor test: `APML_LIVE_TESTS=1`).
+
+**Two local databases (D-41).** `apml_test` (`TEST_DATABASE_URL`) is for tests and the walkthrough, which truncate tables; anything that truncates refuses a database not named `*_test`. `apml` (`DATABASE_URL`) holds working data for `scripts/seeds.py`: snapshots, cached extractor replies and seeds, which cost real model calls to reproduce. **Never point tests at `apml`.**
 
 ---
 
@@ -72,10 +74,11 @@ Without `DATABASE_URL` the PostgreSQL tests skip and everything else runs. **248
 
 ```
 src/domain/      records, repository interfaces, declared error modes
-src/modules/     source_registry, ingestion, analysis
-src/adapters/    memory, postgres, judge, datasets
+src/modules/     source_registry, ingestion, analysis, trajectory, alerting, seeds
+src/adapters/    memory, postgres, judge, datasets, sources, extractors, http.py
 config/          data_sources.json, analytical_versions.json,
-                 judge_prompts/, rubrics/
+                 judge_prompts/, rubrics/, alert_rules/, seed_collection/
+scripts/         walkthrough.py, seeds.py (seed pipeline CLI)
 tests/contract/  one suite per repository, run against every adapter
 ```
 
@@ -109,10 +112,12 @@ domain records → interface with declared error modes → in-memory adapter →
 | 4 | Assessment | `AssessmentRepository` (3 tables, atomic), judge seam, `DeterministicFakeJudgeAdapter`, Result Validator, analysis runner |
 | 5 | Trajectory | Trajectory Engine (6 temporal concepts), `TrajectoryRepository`, wired into the runner |
 | 6a | Judge prompt + parsing | Versioned prompt artefact with real anchors and exclusions, renderer, response parser, `OUTPUT_UNREADABLE` path |
+| S0 + S1 | Seed pipeline: scope and Collect | PROJECT_SCOPE §1.2 (65+, no bands); DS-14/DS-15 registered; PubMed/arXiv/manual collection with query log and content-hashed snapshots; **seal screen before any model call**; Gemini/Ollama extraction seam, cached; `scripts/seeds.py`; D-40 |
+| 7 | Alerting | `alert_rules_v0.1`, Alert Engine, `AlertRepository` both adapters, wired into the runner in one unit of work; D-38, D-39 |
 
-**What works end to end today:** a synthetic conversation is authorised at the gate, ingested with full metadata, scored per exchange by the fake judge, validated, stored with complete provenance, and its trajectory derived across turns — or it fails visibly with the cause distinguishable. `scripts/walkthrough.py` runs the whole path.
+**What works end to end today:** a synthetic conversation is authorised at the gate, ingested with full metadata, scored per exchange by the fake judge, validated, stored with complete provenance, its trajectory derived across turns, and a versioned rule raises an alert citing its scores, trajectory, evidence turns and rule version — or it fails visibly with the cause distinguishable. `scripts/walkthrough.py` runs the whole path.
 
-**§19 acceptance criteria met:** 1, 2, 3, 4, 5, 6, 7, 12.
+**§19 acceptance criteria met:** 1, 2, 3, 4, 5, 6, 7, 8, 10 (trivially: Redis is used nowhere), 12.
 
 ---
 
@@ -120,23 +125,24 @@ domain records → interface with declared error modes → in-memory adapter →
 
 | # | Increment | State | Blocked by |
 |---|---|---|---|
-| **7** | **Alert Engine + `AlertRepository`, one versioned rule** | **⬅ next, unblocked** | — |
 | 6b | `LLMJudgeAdapter`, judge config registry, generated JSON schema, opt-in live test | **Blocked** | [OD-013](docs/foundations/OPEN_DECISIONS.md) — see `docs/foundations/JUDGE_DECISIONS.md` |
-| S0–S7 | **Seed pipeline**: Collect → Filter → Choose → Generate → Review → Label, on a shared PostgreSQL. Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-37 | After 7 | S5 generation: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S1 shared writes: OD-024, OD-026 |
+| S2–S7 | **⬅ next: S2 Filter.** Seed pipeline: Filter → Choose → Generate → Review → Label. Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-41 | Unblocked | S5 generation: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S1 shared writes: OD-024, OD-026 |
 | 8 | Audit trace, Review Query, **synthetic fixtures** | After 7 | — |
 | 9 | FastAPI ingestion, minimal reviewer view | After 8 | [OD-009](docs/foundations/OPEN_DECISIONS.md) dashboard choice |
 | 10 | Reprocessing lineage | After 9 | — |
 | 11 | Redis — only if a real need appears | Last | — |
 
-**§19 criteria still open:** 8 (increment 7), 9 + 13 + 14 (increments 8–9), 10 (satisfied once alerts are durable — Redis is used nowhere), 11 (increment 10).
+**§19 criteria still open:** 9 + 13 + 14 (increments 8–9), 11 (increment 10).
 
-### Increment 7, in short
+### Alerting rules (increment 7, done — these keep holding)
 
 - Alert rules are versioned **independently of the rubric**. Changing a threshold must never mean redefining a signal.
 - Every alert cites the exact scores, trajectory facts, evidence turns and rule version, and is reproducible from them.
 - Context never silently suppresses an alert — a modifier is named and recorded on the alert itself.
 - Uncertain context with elevated harm intent **escalates** to review; it does not de-escalate.
 - No alert causes an automated action. It is not a diagnosis.
+- When SIS/HES cannot decide whether the companion addressed the harm, the alert is `indeterminate`: no severity, manual review (D-39).
+- One active alert per session and rule. A later decision supersedes it **only if at least as severe**; alerts are never cleared automatically (D-39).
 - Provisional thresholds ([OD-004](docs/foundations/OPEN_DECISIONS.md)) do not block: the rule is versioned, so replacing it later is routine.
 
 ---
@@ -179,7 +185,10 @@ The last two matter most. The pilot produces the human-adjudicated labels; witho
 
 - In-memory adapters cannot express transactional behaviour. Anything depending on rollback must be tested against PostgreSQL.
 - No real judge. `DeterministicFakeJudgeAdapter` only — every score it returns is canned, so nothing produced so far says anything about a model's behaviour.
-- Nothing acts on a trajectory yet: alerting is increment 7.
+- `extraction_v0.1` uses `gemini-3.6-flash` (checked 2026-09-23). `gemini-2.5-flash` is listed but refuses new users with a 404. A named release, not a `-latest` alias; it is part of the cache key.
+- Seed collection reads abstracts only; PMC full text and PDFs are absent (D-40). Shared-DB migrations wait until the shared database is chosen.
+- Alerts carry every version but not the `draft` status label; that belongs to the increment 9 view (§19 criterion 13).
+- `trajectory_updates` `CHECK` uses `array_length`, which lets an empty array through in raw SQL (IMPLEMENTATION_FOUNDATION §10.1). `alerts` uses `cardinality`.
 - No human reference labels exist, so **no rubric is validated** and no evaluation figure may be reported.
 - The annotation pilot is **blocked** on OD-014 (sensitive-content policy, escalation owner) and OD-005 (annotator qualifications).
 
@@ -187,7 +196,7 @@ The last two matter most. The pilot produces the human-adjudicated labels; witho
 
 ## Before reporting work complete
 
-- Run the suite in **both** modes — with and without `DATABASE_URL`.
+- Run the suite in **both** modes — with and without `TEST_DATABASE_URL`.
 - Check for dead code: anything with no caller should not exist.
 - Check internal doc links resolve.
 - Update `docs/foundations/IMPLEMENTATION_FOUNDATION.md` §2.1, §8 and §10, and `FOUNDATION_READINESS.md`, after each increment.

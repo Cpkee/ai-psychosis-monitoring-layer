@@ -1,0 +1,11 @@
+-- A separate database for the test suite and the walkthrough (D-41).
+--
+-- Tests and the walkthrough TRUNCATE every table they touch. The working
+-- database (apml) holds collected snapshots, cached extractor replies and
+-- seeds, which cost real model calls to reproduce, so it must never be the
+-- one a test run resets. Anything that truncates refuses a database whose
+-- name does not end in "_test".
+--
+-- Runs only when the Docker volume is first created. On an existing volume:
+--   docker exec apml-postgres psql -U apml -d apml -c "CREATE DATABASE apml_test OWNER apml"
+CREATE DATABASE apml_test OWNER apml;

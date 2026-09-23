@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Callable, Optional, Tuple
 
+from src.domain.alerts.records import Alert
+from src.domain.alerts.repository import AlertRepository
 from src.domain.analysis import records as lifecycle
 from src.domain.analysis.judge import (
     JudgeAdapter,
@@ -33,6 +35,8 @@ from src.domain.conversations.records import Turn
 from src.domain.conversations.repository import ConversationRepository
 from src.domain.trajectories.records import AssessedExchange, TrajectoryUpdate
 from src.domain.trajectories.repository import TrajectoryRepository
+from src.modules.alerting.engine import AlertEngine, supersedes
+from src.modules.alerting.rules import AlertEvaluationInput
 from src.modules.analysis.definitions import AnalyticalDefinitions
 from src.modules.analysis.validator import AssessmentRejected, ResultValidator
 from src.modules.trajectory.engine import TrajectoryEngine
@@ -55,6 +59,8 @@ class AnalysisRunner:
         validator: ResultValidator,
         trajectories: TrajectoryRepository,
         engine: TrajectoryEngine,
+        alerts: AlertRepository,
+        alert_engine: AlertEngine,
         definitions: AnalyticalDefinitions,
         rubric_instructions: str,
         prompt_configuration_version: str,
@@ -68,6 +74,8 @@ class AnalysisRunner:
         self._validator = validator
         self._trajectories = trajectories
         self._engine = engine
+        self._alerts = alerts
+        self._alert_engine = alert_engine
         self._definitions = definitions
         self._new_id = new_id
         self._rubric_instructions = rubric_instructions
@@ -126,7 +134,8 @@ class AnalysisRunner:
         return completed
 
     def _update_trajectory(self, job: AnalysisJob) -> Optional[TrajectoryUpdate]:
-        """Recompute the session trajectory from every stored assessment.
+        """Recompute the session trajectory from every stored assessment, then
+        evaluate the alert rules against it.
 
         Recomputation rather than an incremental fold, so the stored result is
         always reproducible from the assessments it names (§19 criterion 7).
@@ -155,7 +164,7 @@ class AnalysisRunner:
             exchanges,
             self._definitions.taxonomy(job.taxonomy_version).signal_codes,
         )
-        return self._trajectories.save(
+        update = self._trajectories.save(
             TrajectoryUpdate(
                 id=self._new_id(),
                 session_id=job.session_id,
@@ -170,6 +179,29 @@ class AnalysisRunner:
                 created_at=self._clock(),
             )
         )
+        latest = max(exchanges, key=lambda e: e.turn_index).assessment
+        self._raise_alerts(AlertEvaluationInput(latest=latest, trajectory=update))
+        return update
+
+    def _raise_alerts(self, subject: AlertEvaluationInput) -> Tuple[Alert, ...]:
+        """Apply the alert rules to the trajectory just stored.
+
+        Runs inside the caller's unit of work, so an alert commits with the
+        assessment and trajectory it cites, or not at all. A decision replaces
+        the active alert only if it is at least as severe (D-39); otherwise the
+        active alert stands and the newer facts remain in the stored
+        assessments and trajectory.
+        """
+        stored = []
+        for decision in self._alert_engine.evaluate(subject):
+            active = self._alerts.active_for_session(decision.session_id, decision.rule_id)
+            if active is not None and not supersedes(decision, active):
+                continue
+            alert = Alert(id=self._new_id(), decision=decision, created_at=self._clock())
+            if active is not None:
+                self._alerts.supersede(active.id, alert.id)
+            stored.append(self._alerts.save(alert))
+        return tuple(stored)
 
     # -- internals -------------------------------------------------------
 
