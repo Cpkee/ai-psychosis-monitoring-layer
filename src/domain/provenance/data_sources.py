@@ -94,7 +94,11 @@ class DataSourceDefinition:
     prohibited_uses: FrozenSet[DataUsePurpose]
     retention_class: str
     sealed: bool
-    relative_path: str
+    relative_path: Optional[str] = None
+    #: Section 6.1: "Integrity verification uses a stored checksum for
+    #: **immutable** sources." A source produced at runtime has no file to
+    #: hash, so integrity does not apply to it.
+    integrity_required: bool = True
     checksum_algorithm: str = "SHA-256"
     checksum: Optional[str] = None
     manifest_relative_path: Optional[str] = None
@@ -102,6 +106,10 @@ class DataSourceDefinition:
     notes: str = ""
 
     def __post_init__(self) -> None:
+        if self.integrity_required and not self.relative_path:
+            raise ValueError(
+                "A source requiring integrity verification must name a file."
+            )
         overlap = self.permitted_uses & self.prohibited_uses
         if overlap:
             raise ValueError(
@@ -212,7 +220,8 @@ class AuthorizedDataUse:
 
     source_version_id: str
     purpose: DataUsePurpose
-    absolute_path: str
+    #: ``None`` for sources produced at runtime rather than read from a file.
+    absolute_path: Optional[str]
     integrity: IntegrityResult
     audit_event_id: str
     authorized_at: str = dataclasses.field(default_factory=_utc_now)

@@ -50,3 +50,111 @@ CREATE TABLE IF NOT EXISTS turns (
 );
 
 CREATE INDEX IF NOT EXISTS turns_by_session ON turns (session_id, turn_index);
+
+CREATE TABLE IF NOT EXISTS analysis_jobs (
+    id                          TEXT PRIMARY KEY,
+    session_id                  TEXT NOT NULL REFERENCES sessions (id),
+    through_turn_id             TEXT NOT NULL REFERENCES turns (id),
+    status                      TEXT NOT NULL,
+    attempt_count               INTEGER NOT NULL DEFAULT 0,
+    taxonomy_version            TEXT NOT NULL,
+    scale_version               TEXT NOT NULL,
+    rubric_version              TEXT NOT NULL,
+    judge_configuration_version TEXT NOT NULL,
+    schema_version              TEXT NOT NULL,
+    requested_at                TEXT NOT NULL,
+    started_at                  TEXT,
+    completed_at                TEXT,
+    failure_code                TEXT,
+
+    CONSTRAINT jobs_status_valid
+        CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'DELAYED', 'FAILED')),
+    CONSTRAINT jobs_attempt_count_non_negative CHECK (attempt_count >= 0),
+    CONSTRAINT jobs_failed_records_a_code
+        CHECK (status <> 'FAILED' OR failure_code IS NOT NULL),
+    CONSTRAINT jobs_completed_records_a_time
+        CHECK (status <> 'COMPLETED' OR completed_at IS NOT NULL),
+
+    -- Section 13: analysis jobs are unique for the same session window and
+    -- artefact-version set, so a retried ingestion cannot queue the same work
+    -- twice.
+    CONSTRAINT jobs_unique_request UNIQUE (
+        session_id, through_turn_id, taxonomy_version, scale_version,
+        rubric_version, judge_configuration_version, schema_version
+    )
+);
+
+CREATE INDEX IF NOT EXISTS jobs_by_session ON analysis_jobs (session_id, requested_at);
+
+CREATE TABLE IF NOT EXISTS assessments (
+    id                           TEXT PRIMARY KEY,
+    analysis_job_id              TEXT NOT NULL UNIQUE REFERENCES analysis_jobs (id),
+    context_category             TEXT NOT NULL,
+    context_confidence           TEXT,
+    uncertainty                  TEXT,
+    insufficient_evidence        BOOLEAN NOT NULL,
+    explanation                  TEXT NOT NULL,
+    judge_provider               TEXT NOT NULL,
+    judge_model                  TEXT NOT NULL,
+    judge_model_version          TEXT NOT NULL,
+    rubric_version               TEXT NOT NULL,
+    taxonomy_version             TEXT NOT NULL,
+    scale_version                TEXT NOT NULL,
+    prompt_configuration_version TEXT NOT NULL,
+    schema_version               TEXT NOT NULL,
+    created_at                   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS signal_scores (
+    id             TEXT PRIMARY KEY,
+    assessment_id  TEXT NOT NULL REFERENCES assessments (id) ON DELETE CASCADE,
+    signal_code    TEXT NOT NULL,
+    score_value    INTEGER,
+    scale_version  TEXT NOT NULL,
+    uncertain      BOOLEAN NOT NULL DEFAULT FALSE,
+    not_assessable BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- "Could not tell" and "absent" are different findings. A null score is
+    -- always marked not_assessable, and a marked score is always null.
+    CONSTRAINT scores_null_iff_not_assessable
+        CHECK ((score_value IS NULL) = not_assessable),
+    CONSTRAINT scores_unique_per_assessment UNIQUE (assessment_id, signal_code)
+);
+
+CREATE TABLE IF NOT EXISTS assessment_evidence (
+    assessment_id     TEXT NOT NULL REFERENCES assessments (id) ON DELETE CASCADE,
+    turn_id           TEXT NOT NULL REFERENCES turns (id),
+    signal_code       TEXT,
+    evidence_excerpt  TEXT,
+
+    PRIMARY KEY (assessment_id, turn_id, signal_code)
+);
+
+CREATE INDEX IF NOT EXISTS scores_by_assessment ON signal_scores (assessment_id);
+CREATE INDEX IF NOT EXISTS evidence_by_assessment ON assessment_evidence (assessment_id);
+
+ALTER TABLE analysis_jobs
+    ADD COLUMN IF NOT EXISTS failure_detail TEXT;
+
+ALTER TABLE signal_scores
+    ADD COLUMN IF NOT EXISTS specificity_markers TEXT[] NOT NULL DEFAULT '{}';
+
+CREATE TABLE IF NOT EXISTS trajectory_updates (
+    id                        TEXT PRIMARY KEY,
+    session_id                TEXT NOT NULL REFERENCES sessions (id),
+    through_turn_id           TEXT NOT NULL REFERENCES turns (id),
+    trajectory_policy_version TEXT NOT NULL,
+    window_definition         TEXT NOT NULL,
+    state_json                JSONB NOT NULL,
+    derived_facts_json        JSONB NOT NULL,
+    input_assessment_ids      TEXT[] NOT NULL,
+    created_at                TEXT NOT NULL,
+
+    -- A derivation that does not name its inputs cannot be recomputed,
+    -- which §19 criterion 7 requires.
+    CONSTRAINT trajectory_names_its_inputs
+        CHECK (array_length(input_assessment_ids, 1) >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS trajectory_by_session
+    ON trajectory_updates (session_id, created_at);

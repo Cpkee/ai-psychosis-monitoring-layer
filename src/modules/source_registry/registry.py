@@ -136,9 +136,19 @@ class DataSourceRegistry:
         """
         source = self.get_source(source_version_id)
         definition = source.definition
-        path = self.absolute_path(source_version_id)
 
-        if not os.path.exists(path):
+        if not definition.integrity_required:
+            return IntegrityResult(
+                ok=True,
+                algorithm=definition.checksum_algorithm,
+                expected_checksum=None,
+                actual_checksum=None,
+                reason="Integrity does not apply: this source is produced at "
+                       "runtime and has no stored file.",
+            )
+
+        path = self.absolute_path(source_version_id)
+        if path is None or not os.path.exists(path):
             return IntegrityResult(
                 ok=False,
                 algorithm=definition.checksum_algorithm,
@@ -172,8 +182,10 @@ class DataSourceRegistry:
 
     # -- helpers ---------------------------------------------------------
 
-    def absolute_path(self, source_version_id: str) -> str:
+    def absolute_path(self, source_version_id: str) -> Optional[str]:
         definition = self.get_source(source_version_id).definition
+        if not definition.relative_path:
+            return None
         return os.path.join(self._repo_root, definition.relative_path)
 
     def list_sources(self) -> List[DataSourceVersion]:
@@ -212,7 +224,8 @@ class DataSourceRegistry:
                     prohibited_uses=_purposes(entry.get("prohibited_uses", [])),
                     retention_class=entry["retention_class"],
                     sealed=entry["sealed"],
-                    relative_path=entry["relative_path"],
+                    relative_path=entry.get("relative_path"),
+                    integrity_required=entry.get("integrity_required", True),
                     checksum_algorithm=entry.get("checksum_algorithm", "SHA-256"),
                     checksum=entry.get("checksum"),
                     manifest_relative_path=entry.get("manifest_relative_path"),

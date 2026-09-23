@@ -39,6 +39,16 @@ The canonical definitions, data contracts and validation workflow live in [`docs
 python3 -m unittest tests.test_dataset_use_gate tests.test_benchmark_seal
 ```
 
+## Seeing it run
+
+```bash
+docker compose up -d
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python scripts/walkthrough.py
+```
+
+Ingests a short synthetic conversation, scores it with the deterministic fake judge, and prints the resulting trajectory. The scores are canned — it demonstrates the pipeline, not any ability to assess a conversation. It resets every table first, so point `DATABASE_URL` at a scratch database.
+
 ## Running the full suite
 
 The repository contract tests need PostgreSQL. Everything else does not, and never will:

@@ -105,6 +105,28 @@
       ],
       "notes": "Persona generation input only.",
       "checksum": "48bf913b31b98ba5909d42737fe144f5ade99fa74db04b7f850b076e05dbb171"
+    },
+    {
+      "source_name": "synthetic-conversations",
+      "source_type": "runtime_generated",
+      "version": "v1",
+      "integrity_required": false,
+      "provenance": "Conversations produced by this project's synthetic scenario and simulated-user components, or hand-written fixtures. Never Psychosis-Bench and never MindEval-derived.",
+      "authority_status": "raw_source_record",
+      "sealed": false,
+      "retention_class": "experiment_lifetime",
+      "permitted_uses": [
+        "development",
+        "internal_validation",
+        "infrastructure_format_test"
+      ],
+      "prohibited_uses": [
+        "final_evaluation",
+        "domain_reference_labels",
+        "transformer_target_labels",
+        "domain_performance_evidence"
+      ],
+      "notes": "The source every ingested development conversation is registered under. Has no stored file, so integrity verification does not apply (architecture section 6.1)."
     }
   ]
 }
