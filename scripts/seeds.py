@@ -1,10 +1,13 @@
-"""Seed pipeline CLI — S1 Collect (docs/foundations/SEED_PIPELINE_PLAN.md §3.1).
+"""Seed pipeline CLI — S1 Collect and S2 Filter (docs/foundations/SEED_PIPELINE_PLAN.md §3.1–3.2).
 
     .venv/bin/python scripts/seeds.py collect                      # automated PubMed + arXiv queries
     .venv/bin/python scripts/seeds.py collect --manual inputs.json # human-supplied URLs / files
     .venv/bin/python scripts/seeds.py extract [--limit N]          # screen, then extract seeds
     .venv/bin/python scripts/seeds.py reextract --stale [--dry-run]    # after a prompt or model change
     .venv/bin/python scripts/seeds.py reextract --document ID [--dry-run]
+    .venv/bin/python scripts/seeds.py screen                       # S2: overlap screen on current seeds
+    .venv/bin/python scripts/seeds.py review-flags                 # list flagged seeds awaiting a decision
+    .venv/bin/python scripts/seeds.py review-flags --seed ID --keep|--exclude --reason TEXT [--correct]
     .venv/bin/python scripts/seeds.py status
 
 ``--database local`` (default) uses DATABASE_URL and applies schema.sql.
@@ -13,7 +16,8 @@ changes its schema: that happens through reviewed migrations (D-28).
 
 Settings come from the environment, or from a git-ignored ``.env`` file:
 GEMINI_API_KEY or OPENAI_API_KEY (whichever provider extraction_v0.1.json
-selects), and optionally NCBI_API_KEY and NCBI_EMAIL.
+selects), optionally NCBI_API_KEY and NCBI_EMAIL, and APML_ACTOR_ID for anyone
+recording a decision (attribution, not authentication).
 
 Every step commits as it goes, so any command can be interrupted and re-run:
 searches are logged once each, identical snapshots are skipped, extraction is
@@ -28,16 +32,23 @@ from src.adapters.extractors.openai import OpenAIExtractor
 from src.adapters.http import HttpClient, HttpRejected, HttpUnavailable, RetryPolicy
 from src.adapters.postgres.connection import apply_schema, connect, unit_of_work
 from src.adapters.postgres.seeds import (
-    PostgresExtractionCacheRepository, PostgresSeedRepository, PostgresSourceDocumentRepository)
+    PostgresExtractionCacheRepository, PostgresSeedFilterRepository, PostgresSeedRepository,
+    PostgresSourceDocumentRepository)
 from src.adapters.sources.arxiv import ArxivClient
 from src.adapters.sources.manual import InvalidInputFile, ManualFetcher, load_entries
 from src.adapters.sources.pubmed import PubMedClient
 from src.domain.seeds.collection import UnsupportedDocument
 from src.domain.seeds.extraction import ExtractorRequestRejected
-from src.domain.seeds.records import DELAYED, current_seeds
+from src.domain.seeds.overlap import (
+    AWAITING_REVIEW, BLOCKED, CITES_BENCHMARK, EXCLUDE, HARM_TYPE_MATCH, KEEP, SEALED_SPAN)
+from src.domain.seeds.records import DELAYED, EXTRACTED, current_seeds
 from src.domain.seeds.repository import DocumentNotFound
 from src.modules.seeds.collector import SeedCollector
-from src.modules.seeds.config import load_extraction, load_queries, load_tiers, load_vocabulary
+from src.modules.seeds.config import (
+    load_extraction, load_overlap_screen, load_queries, load_tiers, load_vocabulary)
+from src.modules.seeds.filter import (
+    AlreadyReviewed, NotAwaitingReview, NothingToCorrect, SeedFilter, UnknownSeed)
+from src.modules.seeds.overlap_screen import OverlapScreen
 from src.modules.seeds.prompt import PromptRenderer
 from src.modules.seeds.reply import SeedValidator
 from src.modules.seeds.runner import REEXTRACTABLE, SeedExtractionRunner
@@ -45,7 +56,11 @@ from src.modules.seeds.seal_screen import SealScreen
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERSIONS = dict(queries="queries_v0.2", tiers="credibility_tiers_v0.1",
-                vocabulary="seed_vocabulary_v0.2", extraction="extraction_v0.1")
+                vocabulary="seed_vocabulary_v0.2", extraction="extraction_v0.1",
+                overlap_screen="overlap_screen_v0.1")
+#: What each reason code means, for the person reviewing. Never sealed text.
+REASONS = {HARM_TYPE_MATCH: "its harm type resembles a sealed case's harm type",
+           CITES_BENCHMARK: "the source or the seed mentions the sealed benchmark"}
 #: Public search APIs: brief retries, then the query is reported as not run.
 COLLECTOR_RETRY = RetryPolicy(delays=(3.0, 10.0, 30.0))
 
@@ -229,6 +244,89 @@ def cmd_reextract(args, url):
     return run_each(url, runner, [d.id for d in targets], lambda r, i: r.reextract(i))
 
 
+def seed_filter(conn, screen):
+    return SeedFilter(PostgresSourceDocumentRepository(conn), PostgresSeedRepository(conn),
+                      PostgresSeedFilterRepository(conn), screen, now, new_id)
+
+
+def overlap_screen():
+    screen = OverlapScreen(load_overlap_screen(VERSIONS["overlap_screen"]))
+    print("  screen {} · manifest {}".format(screen.version, screen.manifest_sha256[:12]))
+    return screen
+
+
+def explain(reason):
+    code, _, field = reason.partition(":")
+    if code == SEALED_SPAN:
+        return "{} matches a sealed prompt hash".format(field)
+    return REASONS.get(reason, reason)
+
+
+def print_filter_summary(screened):
+    counts = {}
+    for item in screened:
+        counts[item.status] = counts.get(item.status, 0) + 1
+    print("  current seeds         : {}".format(len(screened)))
+    for status in sorted(counts):
+        print("    {:16s} {}".format(status, counts[status]))
+    print("  eligible for Choose   : {}".format(sum(1 for item in screened if item.eligible)))
+
+
+def cmd_screen(args, url):
+    """S2: screen every current seed of every extracted document (D-27)."""
+    screen = overlap_screen()
+    with unit_of_work(url) as conn:
+        extracted = [d.id for d in PostgresSourceDocumentRepository(conn).list_by_status(EXTRACTED)]
+    for document_id in extracted:
+        with unit_of_work(url) as conn:
+            seed_filter(conn, screen).screen_document(document_id)
+    with unit_of_work(url) as conn:
+        screened = seed_filter(conn, screen).seeds()
+    print_filter_summary(screened)
+    for item in screened:
+        if item.status in (BLOCKED, AWAITING_REVIEW):
+            print("  {:16s} seed {}  {}".format(item.status, item.seed.id, "; ".join(
+                explain(r) for r in item.check.reasons)))
+    if any(item.status == AWAITING_REVIEW for item in screened):
+        print("  Run `seeds.py review-flags` to decide the flagged seeds.")
+    return 0
+
+
+def cmd_review_flags(args, url):
+    """S2: list flagged seeds awaiting a decision, or record one."""
+    screen = overlap_screen()
+    if args.seed is None:
+        with unit_of_work(url) as conn:
+            pending = [s for s in seed_filter(conn, screen).seeds()
+                       if s.status == AWAITING_REVIEW]
+        if not pending:
+            print("  No flagged seed is awaiting a decision.")
+        for item in pending:
+            seed = item.seed
+            print("\n  seed {}\n    source     {} ({})\n    title      {}".format(
+                seed.id, seed.source_url, seed.source_type, item.document.title))
+            print("    theme      {} · {} · harm type {}".format(
+                seed.theme_family, seed.account_kind, seed.harm_type_candidate))
+            print("    summary    {}".format(seed.arc_summary))
+            print("    flagged    {}".format("; ".join(explain(r) for r in item.check.reasons)))
+        return 0
+    if args.decision is None or not (args.reason or "").strip():
+        sys.exit("Recording a decision needs --keep or --exclude, and --reason.")
+    actor = os.environ.get("APML_ACTOR_ID", "").strip()
+    if not actor:
+        sys.exit("APML_ACTOR_ID is not set: every decision records who made it.")
+    try:
+        with unit_of_work(url) as conn:
+            review = seed_filter(conn, screen).review(args.seed, args.decision, args.reason,
+                                                      actor, correct=args.correct)
+    except (UnknownSeed, NotAwaitingReview, AlreadyReviewed, NothingToCorrect) as exc:
+        sys.exit(str(exc))
+    print("  recorded  {} seed {} by {}{}".format(
+        review.decision, args.seed, review.actor_id,
+        " (corrects {})".format(review.supersedes) if review.supersedes else ""))
+    return 0
+
+
 def cmd_status(args, url):
     with unit_of_work(url) as conn:
         documents = PostgresSourceDocumentRepository(conn)
@@ -237,6 +335,7 @@ def cmd_status(args, url):
         print("  documents unfinished  : {}".format(len(unfinished)))
         for status in sorted({d.status for d in unfinished}):
             print("    {:14s} {}".format(status, sum(1 for d in unfinished if d.status == status)))
+        print_filter_summary(seed_filter(conn, overlap_screen()).seeds())
     return 0
 
 
@@ -256,10 +355,20 @@ def main():
                        help="every finished document processed under another prompt or model")
     which.add_argument("--document", help="one document, by id")
     reextract.add_argument("--dry-run", action="store_true", help="list, change nothing")
+    sub.add_parser("screen", help="S2: overlap screen on every current seed")
+    review = sub.add_parser("review-flags", help="S2: list flagged seeds, or record a decision")
+    review.add_argument("--seed", help="the flagged seed to decide")
+    decision = review.add_mutually_exclusive_group()
+    decision.add_argument("--keep", dest="decision", action="store_const", const=KEEP)
+    decision.add_argument("--exclude", dest="decision", action="store_const", const=EXCLUDE)
+    review.add_argument("--reason", help="why, in a sentence")
+    review.add_argument("--correct", action="store_true",
+                        help="change an earlier decision; the original is kept")
     sub.add_parser("status")
     args = parser.parse_args()
     url = database_url(args.database)
     return {"collect": cmd_collect, "extract": cmd_extract, "reextract": cmd_reextract,
+            "screen": cmd_screen, "review-flags": cmd_review_flags,
             "status": cmd_status}[args.command](args, url)
 
 

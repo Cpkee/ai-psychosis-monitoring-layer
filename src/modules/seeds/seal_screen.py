@@ -73,17 +73,26 @@ class SealScreen:
         )
         self._identifiers = self._upstream_identifiers(manifest.get("provenance", {}))
 
+    @property
+    def identifiers(self) -> Tuple[str, ...]:
+        """The benchmark's upstream repository path and arXiv ids, lower case."""
+        return self._identifiers
+
     def screen(self, source_url: str, external_id: Optional[str], text: str) -> ScreenResult:
         located = " ".join(filter(None, (source_url, external_id))).lower()
         for identifier in self._identifiers:
             if identifier in located:
                 return ScreenResult(True, "Source is the sealed benchmark's upstream "
                                           "repository or paper ({}).".format(identifier))
-        for span in self._spans(text):
-            if _sha256(span) in self._hashes:
-                return ScreenResult(True, "Text contains a span matching a sealed "
-                                          "Psychosis-Bench prompt hash.")
+        if self.contains_sealed_span(text):
+            return ScreenResult(True, "Text contains a span matching a sealed "
+                                      "Psychosis-Bench prompt hash.")
         return ScreenResult(False)
+
+    def contains_sealed_span(self, text: str) -> bool:
+        """The span-hash check alone. The Filter stage runs it on each field of
+        an extracted seed, where the source was already screened (D-27)."""
+        return any(_sha256(span) in self._hashes for span in self._spans(text))
 
     def _spans(self, text: str):
         sentences: List[str] = [

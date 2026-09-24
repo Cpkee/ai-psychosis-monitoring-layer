@@ -9,9 +9,11 @@ import unittest
 from tests.contract.seed_repositories import (
     ExtractionCacheRepositoryContract,
     ProcessedVersionsContract,
+    SeedFilterRepositoryContract,
     SeedRepositoryContract,
     SourceDocumentRepositoryContract,
     make_document,
+    make_seed,
 )
 from tests.postgres_support import reset_database
 
@@ -20,6 +22,7 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
 class _Postgres:
     store_document = False
+    store_seeds = False
 
     def setUp(self):
         from src.adapters.postgres.connection import apply_schema, connect
@@ -32,6 +35,12 @@ class _Postgres:
             from src.adapters.postgres.seeds import PostgresSourceDocumentRepository
 
             PostgresSourceDocumentRepository(self._connection).save(make_document())
+        if self.store_seeds:
+            # Overlap checks reference the seed they screened.
+            from src.adapters.postgres.seeds import PostgresSeedRepository
+
+            PostgresSeedRepository(self._connection).save_all(
+                (make_seed("example-seed-1"), make_seed("example-seed-2")))
         self._connection.commit()
 
     def tearDown(self):
@@ -75,6 +84,18 @@ class PostgresSeedRepositoryTest(_Postgres, SeedRepositoryContract, unittest.Tes
         from src.adapters.postgres.seeds import PostgresSeedRepository
 
         return PostgresSeedRepository(self._connection)
+
+
+@unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")
+class PostgresSeedFilterRepositoryTest(_Postgres, SeedFilterRepositoryContract,
+                                       unittest.TestCase):
+    store_document = True
+    store_seeds = True
+
+    def repository(self):
+        from src.adapters.postgres.seeds import PostgresSeedFilterRepository
+
+        return PostgresSeedFilterRepository(self._connection)
 
 
 @unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")

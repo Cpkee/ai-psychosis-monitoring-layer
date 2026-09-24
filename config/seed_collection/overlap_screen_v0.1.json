@@ -1,0 +1,11 @@
+{
+  "overlap_screen_version": "overlap_screen_v0.1",
+  "status": "draft",
+  "description": "S2 Filter: the post-extraction overlap screen (D-27, D-48). Blocks a seed any of whose text fields contains a span matching a sealed prompt hash, and flags a seed for human review when its harm type resembles a sealed case's harm type or when the source or seed mentions the sealed benchmark. Reads only the manifest. Every setting here is part of the screen version, so changing one re-screens every seed.",
+  "max_span_sentences": 6,
+  "harm_type_match": {
+    "min_jaccard": 0.5,
+    "note": "Provisional. Harm types are compared as sets of content words (lower case, letters and digits, stopwords removed); a flag is raised when the overlap divided by the union reaches min_jaccard. A flag only asks a person to look, so erring towards flagging is deliberate. Set without looking at the sealed harm types.",
+    "stopwords": ["a", "an", "the", "of", "to", "from", "and", "or", "in", "on", "at", "by", "for", "with", "into", "via", "as", "their", "his", "her", "its", "own", "them", "they"]
+  }
+}

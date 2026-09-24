@@ -7,6 +7,16 @@ from __future__ import annotations
 
 import dataclasses
 
+from src.domain.seeds.overlap import (
+    BLOCKED,
+    CLEAR,
+    EXCLUDE,
+    FLAGGED,
+    HARM_TYPE_MATCH,
+    KEEP,
+    FlagReview,
+    OverlapCheck,
+)
 from src.domain.seeds.records import (
     DELAYED,
     EXTRACTED,
@@ -25,6 +35,9 @@ from src.domain.seeds.repository import (
     ConcurrentDocumentUpdate,
     DocumentAlreadyExists,
     DocumentNotFound,
+    OverlapCheckAlreadyExists,
+    OverlapCheckNotFound,
+    ReviewConflict,
     SeedAlreadyExists,
 )
 
@@ -225,3 +238,123 @@ class SeedRepositoryContract:
     def test_a_seed_without_an_arc_summary_cannot_exist(self):
         with self.assertRaises(ValueError):
             make_seed(arc_summary="  ")
+
+
+EXAMPLE_MANIFEST_SHA256 = "a" * 64
+
+
+def make_check(check_id="example-check-1", seed_id="example-seed-1", result=FLAGGED,
+               reasons=(HARM_TYPE_MATCH,), screen_version="overlap_screen_v0.1#example",
+               manifest_sha256=EXAMPLE_MANIFEST_SHA256, checked_at="2026-01-01T00:00:00Z"):
+    return OverlapCheck(check_id, seed_id, result, reasons, screen_version, manifest_sha256,
+                        checked_at)
+
+
+def make_review(review_id="example-review-1", check_id="example-check-1", decision=KEEP,
+                supersedes=None, recorded_at="2026-01-02T00:00:00Z"):
+    return FlagReview(review_id, check_id, decision, "Example reason.", "example-actor",
+                      recorded_at, supersedes)
+
+
+class SeedFilterRepositoryContract:
+    """The store needs seeds ``example-seed-1`` and ``example-seed-2``."""
+
+    def repository(self):
+        raise NotImplementedError
+
+    def test_a_check_round_trips_with_its_reasons_in_order(self):
+        repo = self.repository()
+        check = make_check(result=BLOCKED, reasons=("sealed_span:arc_summary",
+                                                    "sealed_span:raw_theme_terms"))
+        self.assertEqual(repo.record_check(check), check)
+        self.assertEqual(repo.list_checks(check.screen_version, check.manifest_sha256), (check,))
+
+    def test_a_clear_check_has_no_reasons(self):
+        repo = self.repository()
+        repo.record_check(make_check(result=CLEAR, reasons=()))
+        self.assertEqual(repo.list_checks("overlap_screen_v0.1#example",
+                                          EXAMPLE_MANIFEST_SHA256)[0].reasons, ())
+
+    def test_the_first_check_of_a_seed_under_a_screen_wins(self):
+        repo = self.repository()
+        first = repo.record_check(make_check())
+        again = repo.record_check(make_check("example-check-2", result=CLEAR, reasons=()))
+        self.assertEqual(again, first)
+        self.assertEqual(len(repo.list_checks(first.screen_version, first.manifest_sha256)), 1)
+
+    def test_another_screen_or_manifest_is_another_check(self):
+        repo = self.repository()
+        repo.record_check(make_check())
+        repo.record_check(make_check("example-check-2", screen_version="overlap_screen_v0.2#x"))
+        repo.record_check(make_check("example-check-3", manifest_sha256="b" * 64))
+        self.assertEqual([c.id for c in repo.list_checks("overlap_screen_v0.1#example",
+                                                          EXAMPLE_MANIFEST_SHA256)],
+                         ["example-check-1"])
+
+    def test_checks_are_listed_oldest_first(self):
+        repo = self.repository()
+        repo.record_check(make_check("example-check-b", checked_at="2026-01-02T00:00:00Z"))
+        repo.record_check(make_check("example-check-a", seed_id="example-seed-2",
+                                     checked_at="2026-01-01T00:00:00Z"))
+        self.assertEqual([c.id for c in repo.list_checks("overlap_screen_v0.1#example",
+                                                          EXAMPLE_MANIFEST_SHA256)],
+                         ["example-check-a", "example-check-b"])
+
+    def test_an_id_already_used_for_another_seed_is_refused(self):
+        repo = self.repository()
+        repo.record_check(make_check())
+        with self.assertRaises(OverlapCheckAlreadyExists):
+            repo.record_check(make_check(seed_id="example-seed-2"))
+
+    def test_a_check_has_no_review_until_one_is_saved(self):
+        repo = self.repository()
+        repo.record_check(make_check())
+        self.assertIsNone(repo.latest_review("example-check-1"))
+        review = repo.save_review(make_review())
+        self.assertEqual(repo.latest_review("example-check-1"), review)
+
+    def test_corrections_chain_and_the_latest_wins(self):
+        repo = self.repository()
+        repo.record_check(make_check())
+        repo.save_review(make_review())
+        repo.save_review(make_review("example-review-2", decision=EXCLUDE,
+                                     supersedes="example-review-1"))
+        third = repo.save_review(make_review("example-review-3", supersedes="example-review-2"))
+        self.assertEqual(repo.latest_review("example-check-1"), third)
+
+    def test_a_second_first_review_is_a_conflict(self):
+        repo = self.repository()
+        repo.record_check(make_check())
+        repo.save_review(make_review())
+        with self.assertRaises(ReviewConflict):
+            repo.save_review(make_review("example-review-2", decision=EXCLUDE))
+        self.assertEqual(repo.latest_review("example-check-1").id, "example-review-1")
+
+    def test_superseding_a_review_twice_is_a_conflict(self):
+        repo = self.repository()
+        repo.record_check(make_check())
+        repo.save_review(make_review())
+        repo.save_review(make_review("example-review-2", supersedes="example-review-1"))
+        with self.assertRaises(ReviewConflict):
+            repo.save_review(make_review("example-review-3", supersedes="example-review-1"))
+
+    def test_a_correction_cannot_supersede_another_checks_review(self):
+        repo = self.repository()
+        repo.record_check(make_check())
+        repo.record_check(make_check("example-check-2", seed_id="example-seed-2"))
+        repo.save_review(make_review())
+        with self.assertRaises(ReviewConflict):
+            repo.save_review(make_review("example-review-2", check_id="example-check-2",
+                                         supersedes="example-review-1"))
+
+    def test_a_reused_review_id_is_a_conflict(self):
+        repo = self.repository()
+        repo.record_check(make_check())
+        repo.record_check(make_check("example-check-2", seed_id="example-seed-2"))
+        repo.save_review(make_review())
+        with self.assertRaises(ReviewConflict):
+            repo.save_review(make_review(check_id="example-check-2"))
+
+    def test_a_review_of_an_unknown_check_is_refused(self):
+        with self.assertRaises(OverlapCheckNotFound):
+            self.repository().save_review(make_review(check_id="example-missing-check"))

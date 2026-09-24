@@ -8,9 +8,10 @@ record names the versions it was produced under.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import os
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
 
 from src.modules.analysis.definitions import REPO_ROOT, UnknownVersion
 
@@ -80,6 +81,16 @@ class ExtractionConfig:
         return self.providers[self.provider]
 
 
+@dataclasses.dataclass(frozen=True)
+class OverlapScreenConfig:
+    #: Name and a fingerprint of every setting, so an edit without a rename
+    #: still re-screens (as D-40c for prompts).
+    version: str
+    max_span_sentences: int
+    min_jaccard: float
+    stopwords: FrozenSet[str]
+
+
 def _read(name: str, config_dir: Optional[str]) -> Dict[str, Any]:
     path = os.path.join(config_dir or CONFIG_DIR, "{}.json".format(name))
     if not os.path.exists(path):
@@ -132,4 +143,19 @@ def load_extraction(version: str, config_dir: Optional[str] = None) -> Extractio
         max_span_sentences=int(document["seal_screen"]["max_span_sentences"]),
         retry_delays=tuple(float(d) for d in document["retry"]["delays_seconds"]),
         max_retry_after=float(document["retry"]["max_retry_after_seconds"]),
+    )
+
+
+def load_overlap_screen(version: str, config_dir: Optional[str] = None) -> OverlapScreenConfig:
+    document = _read(version, config_dir)
+    settings = {"max_span_sentences": document["max_span_sentences"],
+                "harm_type_match": document["harm_type_match"]}
+    fingerprint = hashlib.sha256(
+        json.dumps(settings, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    match = document["harm_type_match"]
+    return OverlapScreenConfig(
+        version="{}#{}".format(document["overlap_screen_version"], fingerprint),
+        max_span_sentences=int(document["max_span_sentences"]),
+        min_jaccard=float(match["min_jaccard"]),
+        stopwords=frozenset(w.lower() for w in match["stopwords"]),
     )

@@ -308,3 +308,45 @@ ALTER TABLE source_documents ADD COLUMN IF NOT EXISTS processed_model_version TE
 ALTER TABLE seeds DROP CONSTRAINT IF EXISTS seeds_one_position_per_document;
 CREATE UNIQUE INDEX IF NOT EXISTS seeds_one_position_per_extraction
     ON seeds (source_document_id, extraction_prompt_version, extraction_model_version, ordinal);
+
+-- S2 Filter (D-27, D-48). One check per seed, screen version and manifest; it
+-- stores reason codes and the manifest's hash, never sealed content.
+CREATE TABLE IF NOT EXISTS seed_overlap_checks (
+    id              TEXT PRIMARY KEY,
+    seed_id         TEXT NOT NULL REFERENCES seeds (id),
+    result          TEXT NOT NULL,
+    reasons         TEXT[] NOT NULL,
+    screen_version  TEXT NOT NULL,
+    manifest_sha256 TEXT NOT NULL,
+    checked_at      TEXT NOT NULL,
+
+    CONSTRAINT overlap_result_valid CHECK (result IN ('clear', 'flagged', 'blocked')),
+    CONSTRAINT overlap_clear_iff_no_reasons
+        CHECK ((result = 'clear') = (cardinality(reasons) = 0)),
+    CONSTRAINT overlap_manifest_is_sha256 CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT overlap_one_check_per_screen UNIQUE (seed_id, screen_version, manifest_sha256)
+);
+
+-- Human keep/exclude decisions on flagged seeds. Append-only: a correction
+-- supersedes the latest review. Storage keeps each check's history one
+-- unbroken chain: one first review per check, no review superseded twice, and
+-- a correction must belong to the same check as the review it supersedes.
+CREATE TABLE IF NOT EXISTS seed_flag_reviews (
+    id               TEXT PRIMARY KEY,
+    overlap_check_id TEXT NOT NULL REFERENCES seed_overlap_checks (id),
+    decision         TEXT NOT NULL,
+    reason           TEXT NOT NULL,
+    actor_id         TEXT NOT NULL,
+    recorded_at      TEXT NOT NULL,
+    supersedes       TEXT UNIQUE,
+
+    CONSTRAINT flag_review_decision_valid CHECK (decision IN ('keep', 'exclude')),
+    CONSTRAINT flag_review_has_reason CHECK (btrim(reason) <> ''),
+    CONSTRAINT flag_review_has_actor CHECK (btrim(actor_id) <> ''),
+    CONSTRAINT flag_review_id_per_check UNIQUE (id, overlap_check_id),
+    CONSTRAINT flag_review_supersedes_same_check FOREIGN KEY (supersedes, overlap_check_id)
+        REFERENCES seed_flag_reviews (id, overlap_check_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS flag_reviews_one_first_review
+    ON seed_flag_reviews (overlap_check_id) WHERE supersedes IS NULL;

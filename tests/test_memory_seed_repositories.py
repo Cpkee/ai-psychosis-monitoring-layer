@@ -6,12 +6,14 @@ import unittest
 
 from src.adapters.memory.seeds import (
     InMemoryExtractionCacheRepository,
+    InMemorySeedFilterRepository,
     InMemorySeedRepository,
     InMemorySourceDocumentRepository,
 )
 from tests.contract.seed_repositories import (
     ExtractionCacheRepositoryContract,
     ProcessedVersionsContract,
+    SeedFilterRepositoryContract,
     SeedRepositoryContract,
     SourceDocumentRepositoryContract,
 )
@@ -35,6 +37,11 @@ class InMemoryExtractionCacheRepositoryTest(ExtractionCacheRepositoryContract, u
 class InMemorySeedRepositoryTest(SeedRepositoryContract, unittest.TestCase):
     def repository(self):
         return InMemorySeedRepository()
+
+
+class InMemorySeedFilterRepositoryTest(SeedFilterRepositoryContract, unittest.TestCase):
+    def repository(self):
+        return InMemorySeedFilterRepository()
 
 
 if __name__ == "__main__":

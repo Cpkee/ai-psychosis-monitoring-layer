@@ -13,6 +13,7 @@ from typing import Any, Optional, Tuple
 
 import psycopg
 
+from src.domain.seeds.overlap import FlagReview, OverlapCheck
 from src.domain.seeds.records import (
     TERMINAL,
     CacheKey,
@@ -25,6 +26,9 @@ from src.domain.seeds.repository import (
     ConcurrentDocumentUpdate,
     DocumentAlreadyExists,
     DocumentNotFound,
+    OverlapCheckAlreadyExists,
+    OverlapCheckNotFound,
+    ReviewConflict,
     SeedAlreadyExists,
 )
 
@@ -33,6 +37,8 @@ _QUERY_COLUMNS = ("id", "source", "query_id", "query_text", "query_config_versio
 _DOCUMENT_COLUMNS = tuple(f.name for f in dataclasses.fields(SourceDocument))
 _SEED_COLUMNS = tuple(f.name for f in dataclasses.fields(Seed))
 _SEED_ARRAYS = {"raw_theme_terms", "reported_phase_progression", "companion_behaviour_reported"}
+_CHECK_COLUMNS = tuple(f.name for f in dataclasses.fields(OverlapCheck))
+_REVIEW_COLUMNS = tuple(f.name for f in dataclasses.fields(FlagReview))
 
 
 def _insert(table: str, columns) -> str:
@@ -163,3 +169,61 @@ class PostgresSeedRepository:
                 fields[name] = tuple(fields[name])
             seeds.append(Seed(**fields))
         return tuple(seeds)
+
+
+class PostgresSeedFilterRepository:
+    def __init__(self, connection: psycopg.Connection):
+        self._connection = connection
+
+    def record_check(self, check: OverlapCheck) -> OverlapCheck:
+        values = [list(check.reasons) if c == "reasons" else getattr(check, c)
+                  for c in _CHECK_COLUMNS]
+        self._connection.execute(
+            _insert("seed_overlap_checks", _CHECK_COLUMNS) + " ON CONFLICT DO NOTHING", values)
+        row = self._connection.execute(
+            "SELECT {} FROM seed_overlap_checks "
+            "WHERE seed_id = %s AND screen_version = %s AND manifest_sha256 = %s".format(
+                ", ".join(_CHECK_COLUMNS)),
+            (check.seed_id, check.screen_version, check.manifest_sha256)).fetchone()
+        if row is None:
+            raise OverlapCheckAlreadyExists(
+                "Overlap check {!r} is already stored for another seed or screen.".format(
+                    check.id))
+        return self._check(row)
+
+    def list_checks(self, screen_version: str,
+                    manifest_sha256: str) -> Tuple[OverlapCheck, ...]:
+        rows = self._connection.execute(
+            "SELECT {} FROM seed_overlap_checks WHERE screen_version = %s "
+            "AND manifest_sha256 = %s ORDER BY checked_at, id".format(", ".join(_CHECK_COLUMNS)),
+            (screen_version, manifest_sha256)).fetchall()
+        return tuple(self._check(row) for row in rows)
+
+    def save_review(self, review: FlagReview) -> FlagReview:
+        try:
+            with self._connection.transaction():
+                self._connection.execute(_insert("seed_flag_reviews", _REVIEW_COLUMNS),
+                                         [getattr(review, c) for c in _REVIEW_COLUMNS])
+        except (psycopg.errors.UniqueViolation, psycopg.errors.ForeignKeyViolation):
+            exists = self._connection.execute(
+                "SELECT 1 FROM seed_overlap_checks WHERE id = %s",
+                (review.overlap_check_id,)).fetchone()
+            if exists is None:
+                raise OverlapCheckNotFound("No overlap check {!r}.".format(
+                    review.overlap_check_id))
+            raise ReviewConflict("Review {!r} does not extend the history of check {!r}.".format(
+                review.id, review.overlap_check_id))
+        return review
+
+    def latest_review(self, check_id: str) -> Optional[FlagReview]:
+        row = self._connection.execute(
+            "SELECT {} FROM seed_flag_reviews r WHERE overlap_check_id = %s AND NOT EXISTS "
+            "(SELECT 1 FROM seed_flag_reviews s WHERE s.supersedes = r.id)".format(
+                ", ".join("r." + c for c in _REVIEW_COLUMNS)), (check_id,)).fetchone()
+        return FlagReview(*row) if row is not None else None
+
+    @staticmethod
+    def _check(row) -> OverlapCheck:
+        fields = dict(zip(_CHECK_COLUMNS, row))
+        fields["reasons"] = tuple(fields["reasons"])
+        return OverlapCheck(**fields)
