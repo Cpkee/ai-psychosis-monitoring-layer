@@ -8,6 +8,7 @@ import unittest
 
 from tests.contract.seed_repositories import (
     ExtractionCacheRepositoryContract,
+    ProcessedVersionsContract,
     SeedRepositoryContract,
     SourceDocumentRepositoryContract,
     make_document,
@@ -41,6 +42,14 @@ class _Postgres:
 @unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")
 class PostgresSourceDocumentRepositoryTest(_Postgres, SourceDocumentRepositoryContract,
                                            unittest.TestCase):
+    def repository(self):
+        from src.adapters.postgres.seeds import PostgresSourceDocumentRepository
+
+        return PostgresSourceDocumentRepository(self._connection)
+
+
+@unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")
+class PostgresProcessedVersionsTest(_Postgres, ProcessedVersionsContract, unittest.TestCase):
     def repository(self):
         from src.adapters.postgres.seeds import PostgresSourceDocumentRepository
 

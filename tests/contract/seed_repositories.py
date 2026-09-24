@@ -131,6 +131,35 @@ class SourceDocumentRepositoryContract:
         self.assertEqual([d.id for d in repo.list_unfinished()], [earlier.id, later.id])
 
 
+class ProcessedVersionsContract:
+    """D-45: the document remembers which extraction is current."""
+
+    def repository(self):
+        raise NotImplementedError
+
+    def test_processed_versions_round_trip_through_an_update(self):
+        repo = self.repository()
+        document = repo.save(make_document())
+        done = dataclasses.replace(document, status=EXTRACTED,
+                                   processed_prompt_version="extraction_prompt_v0.3#example",
+                                   processed_model_version="fake_v0.1")
+        repo.update(done, SNAPSHOTTED)
+        self.assertEqual(repo.get(document.id), done)
+
+    def test_list_by_status_finds_finished_documents_oldest_first(self):
+        repo = self.repository()
+        extracted = repo.save(make_document())
+        failed = repo.save(make_document("example-document-2", text="Second example.",
+                                         retrieved_at="2026-01-02T00:00:00Z"))
+        repo.save(make_document("example-document-3", text="Third example."))
+        repo.update(dataclasses.replace(extracted, status=EXTRACTED), SNAPSHOTTED)
+        repo.update(dataclasses.replace(failed, status=FAILED, failure_code=VALIDATION_FAILED),
+                    SNAPSHOTTED)
+        self.assertEqual([d.id for d in repo.list_by_status(EXTRACTED, FAILED)],
+                         [extracted.id, failed.id])
+        self.assertEqual(repo.list_by_status(DELAYED), ())
+
+
 class ExtractionCacheRepositoryContract:
     """Needs the document stored first where storage enforces the reference."""
 
@@ -175,6 +204,15 @@ class SeedRepositoryContract:
         stored = repo.list_for_document("example-document-1")[0]
         self.assertIsNone(stored.theme_family)
         self.assertIsNone(stored.harm_type_candidate)
+
+    def test_a_second_extraction_of_the_same_document_is_kept_beside_the_first(self):
+        """D-45: positions are unique per extraction, not per document."""
+        repo = self.repository()
+        repo.save_all((make_seed("example-seed-v1"),))
+        repo.save_all((make_seed("example-seed-v2", extraction_model_version="fake_v0.2",
+                                 created_at="2026-01-02T00:00:00Z"),))
+        self.assertEqual([s.id for s in repo.list_for_document("example-document-1")],
+                         ["example-seed-v1", "example-seed-v2"])
 
     def test_a_batch_with_a_duplicate_stores_nothing(self):
         repo = self.repository()

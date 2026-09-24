@@ -31,6 +31,7 @@ from src.domain.seeds.records import (
     SCREENED,
     VALIDATION_FAILED,
 )
+from src.domain.seeds.records import current_seeds
 from src.modules.seeds.config import load_extraction, load_tiers, load_vocabulary
 from src.modules.seeds.prompt import PromptRenderer
 from src.modules.seeds.reply import SeedValidator
@@ -189,6 +190,94 @@ class RunnerTest(unittest.TestCase):
         done = self.runner(FakeExtractor(json.dumps({"seeds": []}))).process(self.document.id)
         self.assertEqual(done.status, EXTRACTED)
         self.assertIn("0 seed", done.status_detail)
+
+
+
+class Reextraction(unittest.TestCase):
+    """D-45: re-extraction adds, never deletes, and moves "current" between
+    extractions. Model versions stand in for any prompt or model change."""
+
+    def setUp(self):
+        self.documents = InMemorySourceDocumentRepository()
+        self.cache = InMemoryExtractionCacheRepository()
+        self.seeds = InMemorySeedRepository()
+        self.document = self.documents.save(make_document())
+
+    def runner(self, extractor):
+        return SeedExtractionRunner(
+            self.documents, self.cache, self.seeds,
+            SealScreen(CONFIG.max_span_sentences, manifest_with(EXAMPLE_PROMPT)), extractor,
+            PromptRenderer(CONFIG, VOCABULARY),
+            SeedValidator(VOCABULARY, load_tiers("credibility_tiers_v0.1"), CONFIG),
+            lambda: "2026-01-01T00:00:00Z")
+
+    def current(self):
+        document = self.documents.get(self.document.id)
+        return current_seeds(document, self.seeds.list_for_document(document.id))
+
+    def test_a_finished_document_records_the_extraction_it_came_from(self):
+        runner = self.runner(FakeExtractor(reply(raw_seed())))
+        done = runner.process(self.document.id)
+        self.assertEqual((done.processed_prompt_version, done.processed_model_version),
+                         runner.current_extraction)
+        self.assertFalse(runner.is_stale(done))
+
+    def test_a_failure_also_records_it_so_a_new_prompt_can_retry_it(self):
+        runner = self.runner(FakeExtractor(reply(raw_seed(account_kind="anecdote"))))
+        failed = runner.process(self.document.id)
+        self.assertEqual(failed.status, FAILED)
+        self.assertEqual(failed.processed_model_version, "fake_v0.1")
+        newer = self.runner(FakeExtractor(reply(raw_seed()), model_version="fake_v0.2"))
+        self.assertTrue(newer.is_stale(failed))
+        self.assertEqual(newer.reextract(self.document.id).status, EXTRACTED)
+
+    def test_a_new_model_adds_seeds_keeps_the_old_ones_and_makes_the_new_ones_current(self):
+        self.runner(FakeExtractor(reply(raw_seed(theme_family="A1")))).process(self.document.id)
+        newer = self.runner(FakeExtractor(reply(raw_seed(theme_family="A3"), raw_seed()),
+                                          model_version="fake_v0.2"))
+        self.assertTrue(newer.is_stale(self.documents.get(self.document.id)))
+
+        done = newer.reextract(self.document.id)
+        self.assertEqual(done.status, EXTRACTED)
+        self.assertEqual(len(self.seeds.list_for_document(self.document.id)), 3)
+        self.assertEqual([s.theme_family for s in self.current()], ["A3", "A2"])
+        self.assertFalse(newer.is_stale(done))
+
+    def test_switching_back_makes_the_earlier_seeds_current_at_no_cost(self):
+        self.runner(FakeExtractor(reply(raw_seed(theme_family="A1")))).process(self.document.id)
+        self.runner(FakeExtractor(reply(raw_seed(theme_family="A3")), model_version="fake_v0.2"))\
+            .reextract(self.document.id)
+
+        original = FakeExtractor(reply(raw_seed(theme_family="A2")))
+        self.runner(original).reextract(self.document.id)
+        self.assertEqual(original.requests, [])
+        self.assertEqual([s.theme_family for s in self.current()], ["A1"])
+        self.assertEqual(len(self.seeds.list_for_document(self.document.id)), 2)
+
+    def test_an_interrupted_re_extraction_leaves_the_previous_seeds_current(self):
+        self.runner(FakeExtractor(reply(raw_seed(theme_family="A1")))).process(self.document.id)
+        delayed = self.runner(FakeExtractor(raising(ExtractorUnavailable("HTTP 503")),
+                                            model_version="fake_v0.2")).reextract(self.document.id)
+        self.assertEqual(delayed.status, DELAYED)
+        self.assertEqual([s.theme_family for s in self.current()], ["A1"])
+
+    def test_documents_in_progress_or_blocked_cannot_be_re_extracted(self):
+        from src.modules.seeds.runner import NotReextractable
+
+        runner = self.runner(FakeExtractor(reply(raw_seed())))
+        blocked = self.documents.save(make_document(
+            "example-document-2", text="Example. The user wrote: " + EXAMPLE_PROMPT))
+        runner.process(blocked.id)
+        for document_id in (self.document.id, blocked.id):  # SNAPSHOTTED, BLOCKED_SEALED
+            with self.subTest(document=document_id), self.assertRaises(NotReextractable):
+                runner.reextract(document_id)
+
+    def test_a_document_from_before_versions_were_recorded_counts_as_stale(self):
+        import dataclasses
+
+        legacy = self.documents.update(dataclasses.replace(
+            self.document, status=EXTRACTED), self.document.status)
+        self.assertTrue(self.runner(FakeExtractor(reply())).is_stale(legacy))
 
 
 if __name__ == "__main__":

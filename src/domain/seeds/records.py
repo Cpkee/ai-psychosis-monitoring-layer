@@ -15,6 +15,12 @@ run can stop at any point (interruption, rate limit) and resume:
          +-> BLOCKED_SEALED (Psychosis-Bench screen; never sent to any model)
 
 As with analysis jobs (D-13), DELAYED and FAILED stay strictly apart.
+
+**Current seeds (D-45).** A document records the prompt and model version it
+was last processed under. Its *current* seeds are those from that extraction;
+seeds from earlier extractions stay stored, unchanged, as history. Re-extracting
+under a new prompt or model therefore supersedes old seeds without editing or
+deleting any, and switching back makes the earlier ones current again.
 """
 
 from __future__ import annotations
@@ -73,6 +79,10 @@ class SourceDocument:
     failure_code: Optional[str] = None
     #: Our own messages only, never provider output (as D-11).
     status_detail: Optional[str] = None
+    #: The extraction whose seeds are current: set when the document is
+    #: EXTRACTED or FAILED, kept while a re-extraction is under way.
+    processed_prompt_version: Optional[str] = None
+    processed_model_version: Optional[str] = None
 
     def __post_init__(self) -> None:
         if content_hash(self.text) != self.content_hash:
@@ -145,3 +155,12 @@ class Seed:
     def __post_init__(self) -> None:
         if not self.arc_summary.strip():
             raise ValueError("A seed needs an arc summary.")
+
+
+def current_seeds(document: SourceDocument, seeds: Tuple[Seed, ...]) -> Tuple[Seed, ...]:
+    """The seeds from the document's current extraction (D-45)."""
+    current = (document.processed_prompt_version, document.processed_model_version)
+    return tuple(
+        seed for seed in seeds
+        if (seed.extraction_prompt_version, seed.extraction_model_version) == current
+    )

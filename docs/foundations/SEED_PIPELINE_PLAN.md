@@ -5,7 +5,7 @@
 **Canonical for:** how source material becomes seeds, how seeds become simulated conversations, and how those conversations get human-checked and labelled.
 **Position in the build order:** the **S-series**, after increment 7 (Alerting) and before increment 8 (Review). See [`IMPLEMENTATION_FOUNDATION.md` §8](IMPLEMENTATION_FOUNDATION.md#8-build-order).
 
-> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-44** in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
+> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-45** in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
 
 **Every identifier, value, threshold and field name below is an example** unless this plan states it is decided.
 
@@ -267,7 +267,7 @@ Each increment leaves the suite green in both modes and ends with a **CLI comman
 | # | Increment | Delivers | Caller |
 |---|---|---|---|
 | **S0** ✅ | Scope and registration | PROJECT_SCOPE §1.2 and §7 amended; DS-14/DS-15 registered in the contracts and in `config/data_sources.json`, with governance tests; D-records and ODs written | Dataset Use Gate (config is executable) |
-| **S1** ✅ | Collect | `SourceDocumentRepository`, `ExtractionCacheRepository`, `SeedRepository`; PubMed/arXiv search with query log; URL/file input (**no PDFs yet**, D-40); snapshotting; **pre-extraction seal screen**; extractor provider seam (Gemini, Ollama, fake); tier rule; per-document resume; shared-DB guard and test refusal (**migrations wait for the shared DB**, D-40) | `seeds collect`, `seeds extract`, `seeds status` |
+| **S1** ✅ | Collect | `SourceDocumentRepository`, `ExtractionCacheRepository`, `SeedRepository`; PubMed/arXiv search with query log; URL/file input (**no PDFs yet**, D-40); snapshotting; **pre-extraction seal screen**; extractor provider seam (Gemini, Ollama, fake); tier rule; per-document resume; shared-DB guard and test refusal (**migrations wait for the shared DB**, D-40) | `seeds collect`, `seeds extract`, `seeds reextract` (D-45), `seeds status` |
 | **S2** | Filter | Post-extraction overlap screen and metadata flags; human keep/exclude records for flagged seeds | `seeds screen`, `seeds review-flags` |
 | **S3** | Choose | Coverage matrix, `coverage_targets_v0.1`, selection records, **split by seed**, exposure log | `seeds choose` |
 | **S4** | Scenario and persona | Persona set, Scenario Engine, derived benign counterparts, `ScenarioRepository` | `scenarios build` |

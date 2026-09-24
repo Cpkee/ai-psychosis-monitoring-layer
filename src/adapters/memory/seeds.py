@@ -62,9 +62,13 @@ class InMemorySourceDocumentRepository:
         return document
 
     def list_unfinished(self) -> Tuple[SourceDocument, ...]:
-        return tuple(sorted(
-            (self._by_id[i] for i in self._order if self._by_id[i].status not in TERMINAL),
-            key=lambda d: (d.retrieved_at, self._order.index(d.id))))
+        return self._sorted(d for d in self._by_id.values() if d.status not in TERMINAL)
+
+    def list_by_status(self, *statuses: str) -> Tuple[SourceDocument, ...]:
+        return self._sorted(d for d in self._by_id.values() if d.status in statuses)
+
+    def _sorted(self, documents) -> Tuple[SourceDocument, ...]:
+        return tuple(sorted(documents, key=lambda d: (d.retrieved_at, self._order.index(d.id))))
 
 
 class InMemoryExtractionCacheRepository:

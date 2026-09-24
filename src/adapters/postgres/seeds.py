@@ -76,9 +76,11 @@ class PostgresSourceDocumentRepository:
 
     def update(self, document: SourceDocument, expected_status: str) -> SourceDocument:
         row = self._connection.execute(
-            "UPDATE source_documents SET status = %s, failure_code = %s, status_detail = %s "
+            "UPDATE source_documents SET status = %s, failure_code = %s, status_detail = %s, "
+            "processed_prompt_version = %s, processed_model_version = %s "
             "WHERE id = %s AND status = %s RETURNING id",
             (document.status, document.failure_code, document.status_detail,
+             document.processed_prompt_version, document.processed_model_version,
              document.id, expected_status)).fetchone()
         if row is None:
             stored = self.get(document.id)
@@ -87,10 +89,15 @@ class PostgresSourceDocumentRepository:
         return document
 
     def list_unfinished(self) -> Tuple[SourceDocument, ...]:
+        return self._many("NOT (status = ANY(%s))", sorted(TERMINAL))
+
+    def list_by_status(self, *statuses: str) -> Tuple[SourceDocument, ...]:
+        return self._many("status = ANY(%s)", list(statuses))
+
+    def _many(self, where: str, value: Any) -> Tuple[SourceDocument, ...]:
         rows = self._connection.execute(
-            "SELECT {} FROM source_documents WHERE NOT (status = ANY(%s)) "
-            "ORDER BY retrieved_at, id".format(", ".join(_DOCUMENT_COLUMNS)),
-            (sorted(TERMINAL),)).fetchall()
+            "SELECT {} FROM source_documents WHERE {} ORDER BY retrieved_at, id".format(
+                ", ".join(_DOCUMENT_COLUMNS), where), (value,)).fetchall()
         return tuple(SourceDocument(*row) for row in rows)
 
     def _one(self, where: str, value: Any) -> Optional[SourceDocument]:
@@ -145,7 +152,9 @@ class PostgresSeedRepository:
 
     def list_for_document(self, document_id: str) -> Tuple[Seed, ...]:
         rows = self._connection.execute(
-            "SELECT {} FROM seeds WHERE source_document_id = %s ORDER BY ordinal".format(
+            "SELECT {} FROM seeds WHERE source_document_id = %s "
+            "ORDER BY created_at, extraction_prompt_version, extraction_model_version, "
+            "ordinal".format(
                 ", ".join(_SEED_COLUMNS)), (document_id,)).fetchall()
         seeds = []
         for row in rows:

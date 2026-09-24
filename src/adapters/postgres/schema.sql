@@ -238,6 +238,8 @@ CREATE TABLE IF NOT EXISTS source_documents (
     status           TEXT NOT NULL,
     failure_code     TEXT,
     status_detail    TEXT,
+    processed_prompt_version TEXT,
+    processed_model_version  TEXT,
 
     CONSTRAINT documents_hash_is_sha256 CHECK (length(content_hash) = 64),
     CONSTRAINT documents_status_valid CHECK (status IN
@@ -286,9 +288,7 @@ CREATE TABLE IF NOT EXISTS seeds (
     credibility_tier_version     TEXT NOT NULL,
     created_at                   TEXT NOT NULL,
     publication_date             TEXT,
-    ordinal                      INTEGER NOT NULL,
-
-    CONSTRAINT seeds_one_position_per_document UNIQUE (source_document_id, ordinal)
+    ordinal                      INTEGER NOT NULL
 );
 
 -- D-43: age is no longer extracted. Removes the columns (and their CHECKs) from
@@ -299,3 +299,12 @@ ALTER TABLE seeds DROP COLUMN IF EXISTS age_evidence;
 -- D-44: account kind. Databases created before it get the column without NOT
 -- NULL (existing rows have no kind); the seed validator requires it on write.
 ALTER TABLE seeds ADD COLUMN IF NOT EXISTS account_kind TEXT;
+
+-- D-45: a document may be extracted more than once (new prompt or model), and
+-- every extraction's seeds are kept. Positions are unique per extraction, and
+-- the document records which extraction is current.
+ALTER TABLE source_documents ADD COLUMN IF NOT EXISTS processed_prompt_version TEXT;
+ALTER TABLE source_documents ADD COLUMN IF NOT EXISTS processed_model_version TEXT;
+ALTER TABLE seeds DROP CONSTRAINT IF EXISTS seeds_one_position_per_document;
+CREATE UNIQUE INDEX IF NOT EXISTS seeds_one_position_per_extraction
+    ON seeds (source_document_id, extraction_prompt_version, extraction_model_version, ordinal);

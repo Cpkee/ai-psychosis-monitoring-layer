@@ -57,6 +57,9 @@ class SourceDocumentRepository(Protocol):
     def list_unfinished(self) -> Tuple[SourceDocument, ...]:
         """Documents not yet in a terminal state, oldest retrieval first."""
 
+    def list_by_status(self, *statuses: str) -> Tuple[SourceDocument, ...]:
+        """Documents in any of the given states, oldest retrieval first."""
+
 
 class ExtractionCacheRepository(Protocol):
     def get(self, key: CacheKey) -> Optional[ExtractionCacheEntry]:
@@ -73,4 +76,5 @@ class SeedRepository(Protocol):
         Raises :class:`SeedAlreadyExists`."""
 
     def list_for_document(self, document_id: str) -> Tuple[Seed, ...]:
-        """The document's seeds, in extraction order."""
+        """Every seed the document has ever had, current and superseded, in
+        extraction order. ``records.current_seeds`` picks the current ones."""

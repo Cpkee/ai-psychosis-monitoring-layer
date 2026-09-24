@@ -11,12 +11,18 @@ from src.adapters.memory.seeds import (
 )
 from tests.contract.seed_repositories import (
     ExtractionCacheRepositoryContract,
+    ProcessedVersionsContract,
     SeedRepositoryContract,
     SourceDocumentRepositoryContract,
 )
 
 
 class InMemorySourceDocumentRepositoryTest(SourceDocumentRepositoryContract, unittest.TestCase):
+    def repository(self):
+        return InMemorySourceDocumentRepository()
+
+
+class InMemoryProcessedVersionsTest(ProcessedVersionsContract, unittest.TestCase):
     def repository(self):
         return InMemorySourceDocumentRepository()
 
