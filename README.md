@@ -72,14 +72,14 @@ See [`data/README.md`](data/README.md) for permitted use of every data file, and
 
 ## Project at a glance
 
-This project builds a simulation and monitoring layer around an existing companion LLM.
+This project builds a companion LLM for the client, and a simulation and monitoring layer around it. There is one companion, and this team builds it ([D-46](docs/foundations/IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation)).
 
 It is designed to answer two questions:
 
 1. Does the user’s conversational risk appear to increase or decrease over time?
 2. Does the companion respond safely, or does it reinforce beliefs, dependency or harmful actions?
 
-The system generates controlled synthetic conversations, sends them to the client’s companion API, evaluates both sides of the interaction and displays the results through a browser dashboard.
+The system generates controlled synthetic conversations, sends them to the companion, evaluates both sides of the interaction and displays the results through a browser dashboard.
 
 ## Important boundary
 
@@ -88,7 +88,7 @@ This system does **not**:
 - Diagnose psychosis or any mental-health condition.
 - replace clinical assessment or professional care.
 - train a new generative LLM.
-- use the sycophantic test companion with real users.
+- expose real users to the companion before the live-demo preconditions are approved ([OD-030](docs/foundations/OPEN_DECISIONS.md#od-030)).
 - treat synthetic data as evidence of real-world clinical performance.
 
 It detects and evaluates **conversational risk indicators** for research purposes.
@@ -126,16 +126,10 @@ flowchart TD
     PS[Persona and hidden state] --> SC
     SC --> SU[Adaptive simulated user]
 
-    FR --> CR{Companion condition}
-    SU --> CR
+    FR --> COMP[Companion LLM]
+    SU --> COMP
 
-    CR --> CLIENT[Client companion API]
-    CR --> SAFE[Grounded reference policy]
-    CR --> SYC[Sycophantic stress-test condition]
-
-    CLIENT --> LOG[Conversation record]
-    SAFE --> LOG
-    SYC --> LOG
+    COMP --> LOG[Conversation record]
 
     LOG --> UM[User-trajectory monitor]
     LOG --> RA[Response-safety auditor]
@@ -152,11 +146,11 @@ flowchart TD
 
 ### 1. Fixed benchmark mode
 
-The system runs the original 16 Psychosis-Bench cases against the client model.
+The system runs the original 16 Psychosis-Bench cases against the companion.
 
 These cases are preserved as a sealed final test set and are never used for training or prompt tuning.
 
-This mode measures how safely the client model responds to a predetermined escalating conversation.
+This mode measures how safely the companion responds to a predetermined escalating conversation.
 
 ### 2. Adaptive simulation mode
 
@@ -164,15 +158,13 @@ A simulated user responds dynamically to the companion’s previous message.
 
 A hidden-state updater tracks variables such as belief conviction, AI dependency, social withdrawal and harm intent. This allows different companion responses to produce different simulated trajectories.
 
-## Companion conditions
+## The companion
 
-The same synthetic scenario can be tested against three conditions:
+There is one companion: an LLM with a persona prompt that carries non-sycophancy instructions. It may later gain gated memory across sessions ([OD-028](docs/foundations/OPEN_DECISIONS.md#od-028)) and redirection flows that act on risk signals ([OD-029](docs/foundations/OPEN_DECISIONS.md#od-029)); neither is decided.
 
-- **Client companion:** the primary model being evaluated.
-- **Grounded reference:** an empathetic, non-affirming comparison condition.
-- **Sycophantic stress test:** an intentionally agreeable condition used only in offline experiments.
+The companion and the monitoring layer stay separate. The companion acts; the monitor observes and sends signals back. No alert itself causes an action. Every session records which configuration of the companion produced it, so a change in behaviour can be traced to a change in the companion.
 
-The grounded and sycophantic conditions provide lower-risk and higher-risk reference trajectories. They are experimental controls, not production companions.
+The earlier plan compared three conditions: the client companion, a grounded reference and a sycophantic stress test. The two reference conditions have been dropped. Lower-risk and higher-risk reference trajectories must now come from the synthetic scenarios themselves, or from configurations of the one companion.
 
 ## Evaluation metrics
 
@@ -236,7 +228,7 @@ A small transformer classifier may later be fine-tuned for faster or offline ris
 ## Primary deliverables
 
 - Psychosis-Bench adapter.
-- Client companion API adapter.
+- The companion: persona prompt, and its interface to the monitoring layer ([OD-015](docs/foundations/OPEN_DECISIONS.md#od-015)).
 - Scenario controller and persona system.
 - Adaptive simulated-user engine.
 - Hidden-state updater.
@@ -276,4 +268,6 @@ This project builds upon:
 - LLM-based evaluators may introduce scoring bias.
 - Access to clinical experts is limited.
 - Results from simulated conversations may not generalise to real users.
+- There is no grounded or sycophantic reference companion, so the monitor has no built-in positive and negative controls.
+- A live demo with real users is intended but not permitted until its preconditions are approved ([OD-030](docs/foundations/OPEN_DECISIONS.md#od-030)).
 - The system is not approved for clinical or autonomous safety decision-making.

@@ -26,7 +26,7 @@ Nothing in this register has been decided by this foundations pack. Where a docu
 | [OD-012](#od-012) | Theme and phase estimation for alerts | Alert contract | M3 | OPEN |
 | [OD-013](#od-013) | Judge model selection, determinism and confidence | Rubric v1.0 | M1 | OPEN |
 | [OD-014](#od-014) | Sensitive-content, retention and annotator-welfare policy | Annotation pilot, storage | M2 | OPEN |
-| [OD-015](#od-015) | Client Companion API contract and performance targets | Next slice after tracer bullet | M3 | OPEN |
+| [OD-015](#od-015) | Companion ↔ monitor contract and performance targets (was: client companion API, corrected by D-46) | Companion integration, live signal return | M3 | OPEN |
 | [OD-016](#od-016) | Harm sub-types and third-party risk | Taxonomy, alert rules | M2 | OPEN |
 | [OD-017](#od-017) | Agreement metric, thresholds and recurrence definition | Rubric validation | M1 | OPEN |
 | [OD-018](#od-018) | Trajectory window and temporal thresholds | Trajectory logic | M3 | OPEN |
@@ -39,6 +39,9 @@ Nothing in this register has been decided by this foundations pack. Where a docu
 | [OD-025](#od-025) | Older-adult confounds in the taxonomy | Rubric v1.0, persona design | M1 | DECIDED: withdrawn (D-43) |
 | [OD-026](#od-026) | Hosted storage of harm-bearing content, and whether OD-014 gates Review and Label | Seed pipeline S1, S6, S7 | M2 | OPEN |
 | [OD-027](#od-027) | Coverage targets and realism sample rule | Seed pipeline S3, S6 | M2 | OPEN |
+| [OD-028](#od-028) | Companion memory, and the monitor's cross-session findings history | Companion memory, cross-session alerting | — | OPEN |
+| [OD-029](#od-029) | Automated in-conversation intervention (redirection flows, fast pre-screen) | Companion redirection, signal return | — | OPEN |
+| [OD-030](#od-030) | Preconditions for a live demo with real users | Any real-user conversation (D-47) | Before any real user | OPEN |
 
 ---
 
@@ -319,15 +322,25 @@ For `confidence`: self-reported by the judge (cheap, poorly calibrated), derived
 
 ## OD-015
 
-**Question:** What is the Client Companion API contract — endpoint, authentication, rate limits, model/version reporting, data-handling terms — and what latency and throughput targets apply?
+**Question:** What is the contract between the companion and the monitoring layer — what the companion sends per turn and per session, what the monitor sends back, how the companion's model, prompt, memory and flow versions are reported — and what latency and throughput targets apply?
 
-**Why it matters:** No companion adapter module exists. Without the model-version reporting the client provides, the audit chain cannot record what was evaluated, and results cannot be attributed to a specific model version.
+*Reframed 2026-09-24 by D-46. The question was originally about a client companion API; no such API exists, because this team builds the one companion.*
 
-**Available options:** Obtain the contract from the client; or build against a mock adapter with an explicit interface and defer.
+**Why it matters:** The audit chain can only attribute a result to what actually produced it. If the companion does not report its model version, persona-prompt version, memory configuration and redirection-flow version on every session, a change in behaviour cannot be traced to a change in the companion. The return direction matters as much: once the companion acts on the monitor's signals ([OD-029](#od-029)), those signals become an interface with consumers, and changing them silently changes companion behaviour.
 
-**Evidence already available:** [`README.md`](../../README.md) names a client companion API adapter as a primary deliverable. No endpoint, auth scheme or version-reporting mechanism is recorded anywhere. No performance targets are stated (NFR-9).
+**Proposed shape (for the owner, provisional):**
 
-**Recommended owner:** Project lead (client-facing) with the technical lead.
+| Direction | Content |
+|---|---|
+| Companion → monitor, per session | Companion configuration id and versions (model, persona prompt, memory policy, redirection flows); ids of memories loaded at session start ([OD-028](#od-028)) |
+| Companion → monitor, per turn | The turn, and whether a redirection flow fired and which one ([OD-029](#od-029)) |
+| Monitor → companion | A small, versioned set of signals: severity, times seen, and theme **only once** a theme mapping is approved ([OD-012](#od-012); all mappings are currently `UNRESOLVED`) |
+
+**Available options:** Define the contract now against the in-process ingestion path and keep the HTTP surface for increment 9; or define both together at increment 9.
+
+**Evidence already available:** Ingestion already records `companion_condition` and model metadata per session (FR-2). The monitor runs asynchronously after each turn, with latency dominated by one judge call; no performance target is stated (NFR-9). Signals the companion must act on **before its next reply** would need a faster path — see [OD-029](#od-029).
+
+**Recommended owner:** Technical lead, with the project lead.
 
 **Required by:** M3 for the slice after the tracer bullet. **Status:** OPEN.
 
@@ -546,3 +559,113 @@ For `confidence`: self-reported by the judge (cheap, poorly calibrated), derived
 **Recommended owner:** Research lead.
 
 **Required by:** M2. **Status:** OPEN.
+
+---
+
+## OD-028
+
+**Question:** Should the companion remember users across sessions, and if so under what gates? Separately, should the monitoring layer consult what earlier sessions with the same user showed, and how?
+
+*Revised 2026-09-24 after D-46: companion memory is now a product decision for this team, not an external condition to test. The two halves are kept in one entry because they meet at the gate, but they are different mechanisms.*
+
+**Why it matters:** Memory gives the companion continuity, and it is also one of the ways a companion can make things worse over time. For example, a companion that recalls "you said the neighbours are watching you" at the start of the next session reinstates a belief the user may have begun to doubt. On the monitoring side, each session is currently assessed alone, so a user who stated a specific method in an earlier session starts the next one from a clean trajectory.
+
+**Prerequisite not yet in place:** there is no cross-session identity. The `sessions` record ([`architecture.md` §7.2](../../architecture.md)) has no participant field. Both halves need a pseudonymous `participant_id`, with retention and access rules under [OD-014](#od-014).
+
+### Part A — companion memory (product)
+
+**Options:**
+
+1. No cross-session memory in the first companion version; continuity within a session only.
+2. **Structured memory** in a small table with fixed fields (example fields: name, preferred tone, preferred reply length, topics of interest). Every write is a deliberate choice.
+3. **Mem0** ([mem0.ai](https://mem0.ai)), self-hosted, with local models. Free-form facts extracted by an LLM, scoped by `user_id` (person), `run_id` (session) and `agent_id` (companion). Occasional misses are acceptable for continuity, so its semantic retrieval is not a defect here.
+
+**Gates, whichever option:**
+
+| Gate | Question | Example policy (illustrative) |
+|---|---|---|
+| Write | What gets stored? | Preferences and neutral context. Never a belief claim as fact; at most "user said X on date Y". Never harm-related specifics |
+| Read | What gets loaded or retrieved? | Preferences automatically. Memories linked to signals the monitor has scored high are not loaded automatically |
+| Retention | How long, and who sees it? | Expiry, user-visible deletion, access rules under [OD-014](#od-014) |
+
+Deciding what counts as reinforcing is a clinical and safety judgement; the policy content belongs to the clinical/safety adviser.
+
+**Constraints if Mem0 is chosen:** its default stack sends content to OpenAI for extraction and embeddings, which must be replaced with local models; the extraction model is one more model to choose and version; it runs in its **own database or schema with its own credentials**, never shared with monitoring tables, because Mem0 rewrites and deletes its memories while monitoring records are append-only. Its prompt-customisation and metadata-filtering features, needed for the write and read gates, are to be confirmed against the installed version.
+
+### Part B — the monitor's cross-session findings history
+
+**Options:**
+
+1. None (status quo).
+2. **A PostgreSQL query over stored findings** — scores, trajectory facts and alerts for the participant, each already citing turn ids and versions. Prior findings enter an alert only as a **named modifier** recorded on the alert (example: `prior_session_harm_intent_peak`), never silently.
+3. Mem0 as the monitor's retrieval layer — **not recommended**: semantic top-k retrieval does not guarantee recall of a prior `harm_intent` 3; extracted facts lose turn citations; Mem0's update step can merge a hedged belief into an unhedged one, erasing the shift this project measures; and an indexed query is faster.
+
+**Rules proposed for Part B:**
+
+- Only observable, cited findings carry forward. No preferences, personality or disposition: a stored summary of a person is an assessment of a person, which the non-diagnostic boundary excludes.
+- Prior-session context never enters the judge's input. A primed judge scores high again, and its scores stop being comparable with blind per-session human labels ([`ANNOTATION_GUIDE.md` §3–4](ANNOTATION_GUIDE.md#3-annotation-unit)). Cross-session context belongs at the alert layer.
+- The monitor never reads the companion's memory store. It sees only the memory ids the companion reports loading ([OD-015](#od-015)), so an alert can cite "the companion reintroduced an earlier belief claim from memory".
+
+**Evidence already available:** Mem0 documentation reviewed 2026-09-24: [health-AI memory architecture](https://mem0.ai/blog/memory-architecture-for-health-ai-keeping-patient-context-across-providers-and-sessions), [self-hosted Docker deployment](https://mem0.ai/blog/self-host-mem0-docker). No participant identity or multi-session scenario exists in the repository.
+
+**Provisional recommendation:** Part A — option 1 or 2 for the first companion version, Mem0 once richer recall is needed. Part B — option 2 once participant identity exists.
+
+**Recommended owner:** Part A: project lead, with the clinical/safety adviser owning the gate policy. Part B: research lead.
+
+**Required by:** No milestone yet. Part A before the companion ships memory; Part B before cross-session alerting; both before any real user ([OD-030](#od-030)). **Status:** OPEN.
+
+---
+
+## OD-029
+
+**Question:** Should the companion change its own reply when the conversation looks like it needs immediate intervention — for example, a NeMo Guardrails redirection flow (Colang) that outputs a safe response — and if so, what triggers it?
+
+**Why it matters:** This turns a monitoring prototype into a system that intervenes. [`PROJECT_SCOPE.md` §5](PROJECT_SCOPE.md#5-future-capabilities-explicitly-not-mvp) and [`architecture.md`](../../architecture.md) treat modifying the companion's response as a possible extension requiring a separately approved interface, policy, safety review and audit path. After D-46 the companion is this team's, so the objection that it belongs to someone else no longer applies; the others do.
+
+**Structure proposed:** the companion acts, the monitor only signals. Redirection flows live in the companion under their own versioned policy; the monitor's rule that no alert causes an automated action is unchanged.
+
+**Trigger options:**
+
+1. **Monitor signals.** Asynchronous; latency is one judge call (seconds), so the signal can only affect the turn after next.
+2. **A fast inline pre-screen** before each companion reply. Jev (TypeSafe's typed-decision model) is a candidate: vendor-quoted 70–500 ms, typed yes/no, choice and score answers with probabilities; no rationale and no evidence ([Flavio Copes](https://flaviocopes.com/jev/), [DataCamp](https://www.datacamp.com/blog/system-one-models-jev)). A trigger needs a decision, not a cited score, so the evidence gap matters less here than for a judge. Use TypeSafe's own endpoint only; `jev-ai.pro` describes itself as an independent third-party relay.
+3. Both: the pre-screen for the immediate reply, the monitor for the record.
+
+**Rules proposed, whichever option:**
+
+- **Escalate only.** A trigger may substitute a safe reply or raise priority; it never lowers a score, skips the full judge, or clears an alert. The full judge still scores every exchange for the record.
+- **Every trigger is logged** with the pre-screen's probabilities, model version, threshold version, flow version, the original reply and the substituted one.
+- **Scripts need clinical sign-off.** What a safe reply says, including any crisis resources, is a clinical decision.
+- **A failure mode is chosen explicitly:** if the pre-screen is unavailable, the companion either withholds its reply or replies unguarded. Nobody may leave this to default.
+- **Sessions record whether redirection was enabled**, so companion behaviour and guardrail behaviour can be told apart in evaluation. Annotators stay blind to it.
+
+**Risks to weigh:** false positives on fiction, hypotheticals and ordinary spiritual discussion ([taxonomy §5](ANALYTICAL_TAXONOMY.md#5-context-categories)), where a scripted crisis reply damages trust; false negatives, which mean the system cannot be described as a safety guarantee; thresholds that cannot be set without human-adjudicated labels.
+
+**Evidence already available:** None of this is built. No human labels exist to set a threshold.
+
+**Recommended owner:** Project lead with the clinical/safety adviser.
+
+**Required by:** No milestone yet; before any redirection flow is enabled, and before any real user ([OD-030](#od-030)). **Status:** OPEN.
+
+---
+
+## OD-030
+
+**Question:** What must be in place before real users talk to the companion in a live demo (D-47)?
+
+**Why it matters:** Every existing rule assumed synthetic conversations. With a real person, a missed signal is a missed person, the escalation contact must respond in real time rather than to annotators, and stored conversations become personal and sensitive data. [`PROJECT_SCOPE.md`](PROJECT_SCOPE.md) states real user conversations are out of scope at every stage; D-47 changes the intent, not the permission.
+
+**Preconditions proposed (all required):**
+
+1. **Ethics review** appropriate to the host institution, and informed consent that tells participants they are talking to an AI, that conversations are monitored, what is stored and for how long, and that it is not a clinical or crisis service.
+2. **Participant eligibility and exclusion**, set with the clinical/safety adviser.
+3. **Real-time escalation:** a named person on call for the whole demo, a written procedure for a participant who appears to be at real risk, and crisis resources appropriate to the participants' location. [OD-014](#od-014) extended from annotators to participants.
+4. **Data protection:** lawful basis, retention, access, deletion on request, and where the data is processed — including every third-party model the conversation reaches (companion, judge, any pre-screen, any memory extraction).
+5. **A registered data source** for real-user conversations with its permitted purposes, so the Dataset Use Gate can authorise it. Today the gate refuses it because it does not exist.
+6. **Decided behaviour for the companion's safety features** used in the demo: memory ([OD-028](#od-028)) and redirection ([OD-029](#od-029)).
+7. **Accurate claims:** nothing presented to participants or observers describes the monitor as validated, diagnostic or a safety guarantee. Without human-adjudicated labels no evaluation figure may be reported.
+
+**Evidence already available:** None of the seven is in place. [OD-014](#od-014) and [OD-005](#od-005) are drafts awaiting approval.
+
+**Recommended owner:** Project lead, with the clinical/safety adviser and whoever holds data-protection responsibility for the host organisation.
+
+**Required by:** Before any real user. **Status:** OPEN.
