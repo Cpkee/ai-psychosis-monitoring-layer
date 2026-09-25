@@ -16,7 +16,7 @@ Nothing in this register has been decided by this foundations pack. Where a docu
 | [OD-002](#od-002) | Scale and semantics for DCS/HES/SIS/SGQ | Rubric v1.0, comparability | M1 | OPEN |
 | [OD-003](#od-003) | Confirmation of the assessment unit | Rubric, annotation guide | M1 | OPEN |
 | [OD-004](#od-004) | Alert thresholds and severity rules | Alert engine | M3 | OPEN |
-| [OD-005](#od-005) | Annotator and reviewer qualifications | Annotation pilot | M2 | OPEN |
+| [OD-005](#od-005) | Annotator and reviewer qualifications | Annotation pilot | M2 | IN REVIEW: arrangement proposed 2026-09-25 |
 | [OD-006](#od-006) | Pilot annotation sample size | Annotation pilot | M2 | OPEN |
 | [OD-007](#od-007) | Status of imported MindEval annotations | Reference-label strategy | M2 | OPEN |
 | [OD-008](#od-008) | Sealing and storage of Psychosis-Bench | Benchmark integrity | M3 | OPEN |
@@ -137,9 +137,24 @@ Nothing in this register has been decided by this foundations pack. Where a docu
 
 **Evidence already available:** [`README.md`](../../README.md) records that access to clinical experts is limited and that clinical review will be sought where possible. The imported MindEval annotations show a four-annotator-per-item precedent, but the annotators' qualifications are not recorded in the data.
 
+**Proposed arrangement (project lead, 2026-09-25).** Option 3, with one external clinical doctor. Written into [`DRAFT_ANNOTATOR_QUALIFICATIONS.md` §5.1](DRAFT_ANNOTATOR_QUALIFICATIONS.md#51-proposed-arrangement-2026-09-25) for approval.
+
+| Step | Who | Conversations | What the labels are for |
+|---|---|---|---|
+| 1. Calibration | The clinician labels first; groupmates then label **the same conversations without seeing the clinician's labels**; then everyone compares | Development split, at least 5 | Training annotators. Kept, marked `calibration`, never reference labels |
+| 2. Blind first pass | Two trained groupmates per conversation, independently | Gold split | Input to adjudication |
+| 3. Adjudication | The clinician, on disagreements only, `safety_disagreement` items first | Gold split | **The reference labels** |
+| 4. Judge scoring | The LLM Judge | All | Development and silver: building and tuning. Gold: **tested against step 3, never tuned on** |
+
+The clinician works from files, never a login (D-50). Sending them packets requires the external-sharing terms in [OD-014](#od-014).
+
+LLM output never becomes a label, and nothing is tuned against gold. Testing a judge against labels another LLM produced measures agreement between models, not correctness.
+
+**Still open under this arrangement:** the clinician's specific qualification; the calibration pass condition; what happens if the clinician cannot adjudicate every disagreement (the draft's §5 option 2 fallback); and whether a second clinician is available for the rubric's harm definitions.
+
 **Recommended owner:** Project lead with the clinical/safety adviser.
 
-**Required by:** M2. **Status:** OPEN.
+**Required by:** M2. **Status:** IN REVIEW.
 
 ---
 
@@ -214,6 +229,8 @@ Nothing in this register has been decided by this foundations pack. Where a docu
 3. Minimal server-rendered pages for the tracer bullet, deferring the choice.
 
 **Evidence already available:** [`README.md`](../../README.md) lists both as acceptable. The tracer bullet needs only a read-only alert list and detail view.
+
+**Annotation UI (2026-09-25, D-50).** Separate from the reviewer view: a small **local** tool that opens and saves the same packet file an external clinician fills in with a spreadsheet program. Not hosted, no sign-in, no database connection, so it can show only what the packet contains. Its technology is open; it would be the project's first UI dependency, so choose it deliberately, and consider whether the same choice serves the reviewer view.
 
 **Recommended owner:** Technical lead.
 
@@ -311,6 +328,8 @@ For `confidence`: self-reported by the judge (cheap, poorly calibrated), derived
 **Why it matters:** Conversations contain detailed self-harm, suicide, harm-to-others, medical-neglect and financial-ruin content. Annotators are exposed to it repeatedly. Without a named contact and a stated policy, [`ANNOTATION_GUIDE.md` §10](ANNOTATION_GUIDE.md#10-handling-sensitive-content) cannot actually be followed, and the pilot should not start.
 
 **Available options:** Adopt an existing organisational policy; commission one with the clinical/safety adviser; or restrict the pilot to staff with existing professional support arrangements until a policy exists.
+
+**External annotators (2026-09-25, D-50).** An external clinician labels and adjudicates from packet files. Before the first packet leaves the team, this policy must also state: a secure channel for sending and returning files (not plain email attachments); what the recipient may keep and when they delete it; a pseudonymous id for them in the data; their welfare support and escalation contact; and any agreement their organisation requires.
 
 **Evidence already available:** [`data/test_cases.json`](../../data/test_cases.json) enumerates nine `harm_type` values including jumping from height, suicide to "join" the AI, medical neglect, cult formation and severe isolation. No policy of any kind exists in the repository. All data is synthetic, which lowers but does not remove the concern.
 

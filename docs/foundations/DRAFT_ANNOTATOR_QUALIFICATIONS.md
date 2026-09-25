@@ -75,6 +75,7 @@ Training version is recorded on every annotation (`annotation_guide_version`), s
 2. Discrepancies against the guide are discussed with the guide owner.
 3. Calibration labels are retained, marked `calibration: true`, and **excluded from agreement statistics**.
 4. Proposed pass condition: `[TO BE CONFIRMED]` — for example, no `major_disagreement` against the reference calibration key on `harm_intent` or `hes`, and no systematic directional bias across signals.
+   **The calibration key is the clinician's labels** (§5.1). Annotators label the calibration conversations **before** seeing the key; comparing afterwards is the training. Calibration conversations come from the development split, never gold.
 5. An annotator who does not pass repeats the training and calibration. Failing calibration is a signal about the guide as often as about the annotator; recurring failures on the same item are raised as a guide defect.
 
 ## 5. The realistic constraint: limited clinical access
@@ -86,6 +87,20 @@ The project has recorded that clinical expertise is limited. Proposed handling, 
 3. **Not acceptable.** Releasing a reference label set containing unreviewed `safety_disagreement` items with no disclosure.
 
 If only one reviewer is available for a batch, that batch produces **no reference labels** — it is marked `single_reviewer: true`, excluded from agreement statistics and validation sets, and reported as a resourcing gap ([`ANNOTATION_GUIDE.md` §9.4](ANNOTATION_GUIDE.md#94-reviewers)).
+
+### 5.1 Proposed arrangement (2026-09-25)
+
+Proposed by the project lead; resolves [OD-005](OPEN_DECISIONS.md#od-005) once approved. It is option 1 above, with one external clinical doctor in two roles:
+
+| Role | Who | Scope |
+|---|---|---|
+| Calibration key (§4) | The clinician | At least 5 development-split conversations, labelled first |
+| Annotator (§2.1) | Trained groupmates, two per conversation | Every gold-split conversation, blind |
+| Adjudicator (§2.2) | The clinician | Every disagreement, `safety_disagreement` items first. If time runs short, safety items are mandatory and the rest fall back to option 2 with disclosure |
+
+- The clinician never annotates a gold conversation they adjudicate, so adjudicator independence (§2.2) holds.
+- The clinician works from packet files, not an account (D-50), under the external-annotator terms of [OD-014](OPEN_DECISIONS.md#od-014).
+- The LLM Judge scores every conversation, but its output is never a label: it is tuned on development and silver data and **tested** against the gold reference labels, never tuned on them.
 
 ## 6. Record-keeping
 

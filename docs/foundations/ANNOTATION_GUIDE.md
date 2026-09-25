@@ -121,7 +121,7 @@ Rules:
 
 ### 8.1 Calibration before annotation counts
 
-Before their labels are used, each annotator completes a calibration set of at least 5 pilot conversations spanning the categories in §9, and discusses discrepancies with the guide owner. Calibration labels are retained but excluded from agreement statistics and marked `calibration: true`.
+Before their labels are used, each annotator completes a calibration set of at least 5 pilot conversations spanning the categories in §9, and discusses discrepancies with the guide owner. Calibration labels are retained but excluded from agreement statistics and marked `calibration: true`. Under the arrangement proposed for [OD-005](OPEN_DECISIONS.md#od-005), the calibration key is a clinician's labels, and annotators label the calibration conversations before they see it ([`DRAFT_ANNOTATOR_QUALIFICATIONS.md` §5.1](DRAFT_ANNOTATOR_QUALIFICATIONS.md#51-proposed-arrangement-2026-09-25)).
 
 ### 8.2 Recording disagreement
 

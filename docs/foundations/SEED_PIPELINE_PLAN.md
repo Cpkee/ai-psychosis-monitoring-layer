@@ -5,7 +5,7 @@
 **Canonical for:** how source material becomes seeds, how seeds become simulated conversations, and how those conversations get human-checked and labelled.
 **Position in the build order:** the **S-series**, after increment 7 (Alerting) and before increment 8 (Review). See [`IMPLEMENTATION_FOUNDATION.md` §8](IMPLEMENTATION_FOUNDATION.md#8-build-order).
 
-> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-45** in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
+> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-50** (D-46 and D-47 are scope decisions that also bind it) in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
 
 **Every identifier, value, threshold and field name below is an example** unless this plan states it is decided.
 
@@ -61,6 +61,7 @@ flowchart TD
     subgraph LABEL["6 · Label"]
         RR -->|pass, silver split| SIL[Planned labels → human check<br/>stored as SILVER, never reference]
         RR -->|pass, gold split| GOLD[Blind annotation<br/>ANNOTATION_GUIDE §4]
+        GOLD --> ADJ[Adjudication<br/>→ versioned reference labels]
     end
 ```
 
@@ -212,6 +213,9 @@ These are **realism ratings of the generator**, not assessments of the conversat
 - No planned label for a gold seed is ever shown to anyone.
 - Annotation follows [`ANNOTATION_GUIDE.md` §4](ANNOTATION_GUIDE.md#4-blind-independent-first-pass) exactly: two independent annotators, randomised order, and none of the scenario, condition, model, judge output or planned labels visible. Annotators excluded by the exposure log are never assigned.
 - S7 builds the blind packet export and label submission into the [contracts §4.8](DATA_SOURCES_AND_CONTRACTS.md#48-annotations-and-adjudications) records. **Running** gold labelling stays blocked on [OD-014](OPEN_DECISIONS.md#od-014) and [OD-005](OPEN_DECISIONS.md#od-005), as the pilot already is.
+- **Packets are files (D-50).** One spreadsheet per person per batch, so an external clinician can label without an account. Answer cells are restricted to allowed values; conversation text is read-only. Each packet carries its id and a checksum of the turns it was built from, so returned labels can attach only to those turns. Every packet comes back through **one validated import**, whether filled in with a spreadsheet program or with the optional local annotation UI, which opens and saves the same file ([OD-009](OPEN_DECISIONS.md#od-009)).
+
+**Adjudication and release (S8).** Once both independent label sets for a conversation are frozen, disagreements are compiled per exchange and field into the types in [`ANNOTATION_GUIDE.md` §8.2](ANNOTATION_GUIDE.md#82-recording-disagreement). Agreements pass through. Everything else goes to the adjudicator in an **adjudication packet**, which, unlike an annotation packet, shows both labels, both evidence sets and both justifications. The adjudicator records a decision and a mandatory rationale per item, or `unresolvable`. Adjudicated labels are released as a versioned reference label set. Under the arrangement proposed for OD-005, the adjudicator is the external clinician.
 
 ---
 
@@ -273,7 +277,8 @@ Each increment leaves the suite green in both modes and ends with a **CLI comman
 | **S4** | Scenario and persona | Persona set, Scenario Engine, derived benign counterparts, `ScenarioRepository` | `scenarios build` |
 | **S5** | Generate | Simulated user + hidden-state updater, reference companions, Anthropic provider, model-family registry and **start-up refusal**, spend cap and ledger, conversation cache, ingestion via Orchestrator; **simulated-user pilot run**, with the result recorded as a D-record | `conversations generate`, `pilot simuser` |
 | **S6** | Review | Realism sample rule, rating records, revise-and-regenerate lineage with `supersedes` | `review rate`, `review revise` |
-| **S7** | Label | Silver labels + check CLI + isolation test; blind gold packet export and label submission; release-bundle export and idempotent import | `labels silver`, `labels gold-packet`, `release export/import` |
+| **S7** | Label | Silver labels + check CLI + isolation test; blind gold packet export (**spreadsheet files**, D-50) and validated import; release-bundle export and idempotent import | `labels silver`, `labels gold-packet`, `release export/import` |
+| **S8** | Adjudicate and release | Disagreement compiler (guide §8.2); adjudication packet (a file, D-50); adjudication import with mandatory rationale, `unresolvable`, and adjudicator-independence check; versioned **reference label set** release. Agreement statistics wait for [OD-017](OPEN_DECISIONS.md#od-017) | `labels compare`, `labels adjudication-packet`, `labels import-adjudication`, `labels release` |
 
 **Tests per increment** (the minimum; each gets its own list when started):
 
@@ -282,6 +287,7 @@ Each increment leaves the suite green in both modes and ends with a **CLI comman
 - S5: a config with two roles in the same family refuses to start; the spend cap stops the run before the capped call; a judge prompt still contains no scenario, condition or hidden state (existing rule, re-asserted).
 - S6: a revision creates a new session and never edits a turn.
 - S7: no reference or validation query reaches silver labels; a gold packet contains no planned labels, scenario fields or condition; an exposed actor cannot be assigned; importing a bundle twice creates no duplicates.
+- S8: the adjudicator cannot be an author of either label; every adjudicated item has a rationale; `unresolvable` items never enter a reference set; original labels are never changed; judge output and silver labels can never enter a reference set; releasing the same adjudications twice gives the same set.
 
 **Relationship to increment 8.** Increment 8's committed fixtures may be *modelled on* generated conversations, but anything committed goes into a **public repository**. Committed fixtures stay hand-written (D-3), must pass the seal test, and must not reproduce copyrighted source text.
 

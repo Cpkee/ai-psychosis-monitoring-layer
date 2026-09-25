@@ -129,7 +129,7 @@ domain records → interface with declared error modes → in-memory adapter →
 | # | Increment | State | Blocked by |
 |---|---|---|---|
 | 6b | `LLMJudgeAdapter`, judge config registry, generated JSON schema, opt-in live test | **Blocked** | [OD-013](docs/foundations/OPEN_DECISIONS.md) — see `docs/foundations/JUDGE_DECISIONS.md` |
-| S4–S7 | **⬅ next: S4 Scenario and persona.** Seed pipeline: Scenario and persona → Generate → Review → Label. Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-49. S4/S5 predate D-46 (one in-house companion) and need updating before S5 | Unblocked | S5 generation: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S1 shared writes: OD-024, OD-026 |
+| S4–S8 | **⬅ next: S4 Scenario and persona.** Seed pipeline: Scenario and persona → Generate → Review → Label → Adjudicate (S8, D-50). Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-50. S4/S5 predate D-46 (one in-house companion) and need updating before S5 | Unblocked | S5 generation: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S1 shared writes: OD-024, OD-026 |
 | 8 | Audit trace, Review Query, **synthetic fixtures** | After 7 | — |
 | 9 | FastAPI ingestion, minimal reviewer view | After 8 | [OD-009](docs/foundations/OPEN_DECISIONS.md) dashboard choice |
 | 10 | Reprocessing lineage | After 9 | — |
@@ -156,7 +156,7 @@ domain records → interface with declared error modes → in-memory adapter →
 |---|---|---|
 | Judge model, sampling, confidence, judge/companion family independence | Increment 6b | Brief ready: `docs/foundations/JUDGE_DECISIONS.md` |
 | [OD-014](docs/foundations/OPEN_DECISIONS.md) sensitive-content policy + **named escalation owner** | The annotation pilot | Draft ready for approval |
-| [OD-005](docs/foundations/OPEN_DECISIONS.md) annotator qualifications | The annotation pilot | Draft ready for approval |
+| [OD-005](docs/foundations/OPEN_DECISIONS.md) annotator qualifications | The annotation pilot | Arrangement proposed 2026-09-25: an external clinician sets the calibration key and adjudicates; groupmates annotate blind; the LLM is tested, never a label source. Awaiting approval |
 
 The last two matter most. The pilot produces the human-adjudicated labels; without labels no rubric can be validated; without a validated rubric **no evaluation figure may be reported**. It is the longest pole and it is blocked on two approvals, not on engineering.
 
