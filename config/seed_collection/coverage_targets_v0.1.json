@@ -1,0 +1,10 @@
+{
+  "coverage_targets_version": "coverage_targets_v0.1",
+  "status": "draft",
+  "description": "S3 Choose (D-35, D-49). Advisory: a selection that misses a target is refused until the chooser accepts the gap, and every accepted gap is written into the selection record. Counts are over chosen seeds in all splits unless stated. Provisional guesses made before the source supply is known (OD-027); revise after the first collection run. Every setting is part of the targets version.",
+  "min_per_theme_family": {"A1": 3, "A2": 3, "A3": 3},
+  "min_per_explicitness": {"explicit": 2, "implicit": 2},
+  "min_per_harm": {"harm_described": 3, "no_harm_described": 3},
+  "max_pattern_share": 0.5,
+  "every_theme_family_in_splits": ["gold"]
+}

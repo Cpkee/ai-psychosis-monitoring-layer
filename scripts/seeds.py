@@ -1,4 +1,4 @@
-"""Seed pipeline CLI — S1 Collect and S2 Filter (docs/foundations/SEED_PIPELINE_PLAN.md §3.1–3.2).
+"""Seed pipeline CLI — S1 Collect, S2 Filter, S3 Choose (docs/foundations/SEED_PIPELINE_PLAN.md §3.1–3.3).
 
     .venv/bin/python scripts/seeds.py collect                      # automated PubMed + arXiv queries
     .venv/bin/python scripts/seeds.py collect --manual inputs.json # human-supplied URLs / files
@@ -8,6 +8,9 @@
     .venv/bin/python scripts/seeds.py screen                       # S2: overlap screen on current seeds
     .venv/bin/python scripts/seeds.py review-flags                 # list flagged seeds awaiting a decision
     .venv/bin/python scripts/seeds.py review-flags --seed ID --keep|--exclude --reason TEXT [--correct]
+    .venv/bin/python scripts/seeds.py choose                       # S3: coverage, current selection, candidates
+    .venv/bin/python scripts/seeds.py choose --gold ID,ID --silver ID --development ID [--drop ID]
+                                             [--dry-run] [--accept-gaps]
     .venv/bin/python scripts/seeds.py status
 
 ``--database local`` (default) uses DATABASE_URL and applies schema.sql.
@@ -17,7 +20,8 @@ changes its schema: that happens through reviewed migrations (D-28).
 Settings come from the environment, or from a git-ignored ``.env`` file:
 GEMINI_API_KEY or OPENAI_API_KEY (whichever provider extraction_v0.1.json
 selects), optionally NCBI_API_KEY and NCBI_EMAIL, and APML_ACTOR_ID for anyone
-recording a decision (attribution, not authentication).
+who sees seed content or records a decision (attribution, not authentication).
+Seeing a seed's content is recorded in the exposure log (D-34).
 
 Every step commits as it goes, so any command can be interrupted and re-run:
 searches are logged once each, identical snapshots are skipped, extraction is
@@ -32,7 +36,8 @@ from src.adapters.extractors.openai import OpenAIExtractor
 from src.adapters.http import HttpClient, HttpRejected, HttpUnavailable, RetryPolicy
 from src.adapters.postgres.connection import apply_schema, connect, unit_of_work
 from src.adapters.postgres.seeds import (
-    PostgresExtractionCacheRepository, PostgresSeedFilterRepository, PostgresSeedRepository,
+    PostgresExtractionCacheRepository, PostgresSeedExposureRepository,
+    PostgresSeedFilterRepository, PostgresSeedRepository, PostgresSeedSelectionRepository,
     PostgresSourceDocumentRepository)
 from src.adapters.sources.arxiv import ArxivClient
 from src.adapters.sources.manual import InvalidInputFile, ManualFetcher, load_entries
@@ -42,10 +47,14 @@ from src.domain.seeds.extraction import ExtractorRequestRejected
 from src.domain.seeds.overlap import (
     AWAITING_REVIEW, BLOCKED, CITES_BENCHMARK, EXCLUDE, HARM_TYPE_MATCH, KEEP, SEALED_SPAN)
 from src.domain.seeds.records import DELAYED, EXTRACTED, current_seeds
+from src.domain.seeds.selection import (
+    DEVELOPMENT, FLAG_REVIEW, GOLD, SILVER, SPLITS, ExposureEvent)
 from src.domain.seeds.repository import DocumentNotFound
 from src.modules.seeds.collector import SeedCollector
+from src.modules.seeds.choose import ChoiceRefused, GapsNotAccepted, SeedChooser, coverage
 from src.modules.seeds.config import (
-    load_extraction, load_overlap_screen, load_queries, load_tiers, load_vocabulary)
+    load_coverage_targets, load_extraction, load_overlap_screen, load_queries, load_tiers,
+    load_vocabulary)
 from src.modules.seeds.filter import (
     AlreadyReviewed, NotAwaitingReview, NothingToCorrect, SeedFilter, UnknownSeed)
 from src.modules.seeds.overlap_screen import OverlapScreen
@@ -57,7 +66,7 @@ from src.modules.seeds.seal_screen import SealScreen
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERSIONS = dict(queries="queries_v0.2", tiers="credibility_tiers_v0.1",
                 vocabulary="seed_vocabulary_v0.2", extraction="extraction_v0.1",
-                overlap_screen="overlap_screen_v0.1")
+                overlap_screen="overlap_screen_v0.1", coverage_targets="coverage_targets_v0.1")
 #: What each reason code means, for the person reviewing. Never sealed text.
 REASONS = {HARM_TYPE_MATCH: "its harm type resembles a sealed case's harm type",
            CITES_BENCHMARK: "the source or the seed mentions the sealed benchmark"}
@@ -292,13 +301,29 @@ def cmd_screen(args, url):
     return 0
 
 
+def require_actor(purpose):
+    actor = os.environ.get("APML_ACTOR_ID", "").strip()
+    if not actor:
+        sys.exit("APML_ACTOR_ID is not set: it is needed to {}, because who has seen "
+                 "which seed is recorded (D-34).".format(purpose))
+    return actor
+
+
+def expose(conn, actor, seed_ids, activity):
+    exposure = PostgresSeedExposureRepository(conn)
+    for seed_id in seed_ids:
+        exposure.record(ExposureEvent(seed_id, actor, activity, now()))
+
+
 def cmd_review_flags(args, url):
     """S2: list flagged seeds awaiting a decision, or record one."""
     screen = overlap_screen()
+    actor = require_actor("see flagged seeds" if args.seed is None else "record a decision")
     if args.seed is None:
         with unit_of_work(url) as conn:
             pending = [s for s in seed_filter(conn, screen).seeds()
                        if s.status == AWAITING_REVIEW]
+            expose(conn, actor, (item.seed.id for item in pending), FLAG_REVIEW)
         if not pending:
             print("  No flagged seed is awaiting a decision.")
         for item in pending:
@@ -312,18 +337,108 @@ def cmd_review_flags(args, url):
         return 0
     if args.decision is None or not (args.reason or "").strip():
         sys.exit("Recording a decision needs --keep or --exclude, and --reason.")
-    actor = os.environ.get("APML_ACTOR_ID", "").strip()
-    if not actor:
-        sys.exit("APML_ACTOR_ID is not set: every decision records who made it.")
     try:
         with unit_of_work(url) as conn:
             review = seed_filter(conn, screen).review(args.seed, args.decision, args.reason,
                                                       actor, correct=args.correct)
+            expose(conn, actor, (args.seed,), FLAG_REVIEW)
     except (UnknownSeed, NotAwaitingReview, AlreadyReviewed, NothingToCorrect) as exc:
         sys.exit(str(exc))
     print("  recorded  {} seed {} by {}{}".format(
         review.decision, args.seed, review.actor_id,
         " (corrects {})".format(review.supersedes) if review.supersedes else ""))
+    return 0
+
+
+def seed_chooser(conn, screen, targets):
+    return SeedChooser(seed_filter(conn, screen), PostgresSeedSelectionRepository(conn),
+                       PostgresSeedExposureRepository(conn), targets, now, new_id)
+
+
+def describe_selection(selection):
+    if selection is None:
+        return "none yet"
+    per_split = ", ".join("{} {}".format(sum(1 for e in selection.entries if e.split == split),
+                                         split) for split in SPLITS)
+    return "v{} by {} · {} seed(s): {} · {} pattern · {} accepted gap(s)".format(
+        selection.selection_version, selection.actor_id, len(selection.entries), per_split,
+        selection.pattern_count, len(selection.gaps))
+
+
+def print_coverage(cells, gaps):
+    print("  {:5s} {:9s} {:18s} {:>4s} {:>6s} {:>4s} {:>8s}   chosen kinds · tiers".format(
+        "theme", "explicit.", "harm", "gold", "silver", "dev", "unchosen"))
+    for c in cells:
+        print("  {:5s} {:9s} {:18s} {:4d} {:6d} {:4d} {:8d}   {} individual, {} pattern{}".format(
+            c.theme_family, c.explicitness, c.harm, c.gold, c.silver, c.development, c.unchosen,
+            c.individual, c.pattern,
+            " · " + ", ".join("{}×{}".format(t, n) for t, n in c.tiers) if c.tiers else ""))
+    if gaps is None:
+        return
+    if gaps:
+        print("  gaps against targets:")
+        for gap in gaps:
+            print("    - {}".format(gap))
+    else:
+        print("  no gaps against targets")
+
+
+def split_ids(values):
+    return [i.strip() for value in values or () for i in value.split(",") if i.strip()]
+
+
+def cmd_choose(args, url):
+    """S3: show coverage and candidates, or make a new selection (D-34, D-35)."""
+    screen = overlap_screen()
+    targets = load_coverage_targets(VERSIONS["coverage_targets"])
+    print("  targets {}".format(targets.version))
+    assign = {}
+    for split, values in ((GOLD, args.gold), (SILVER, args.silver), (DEVELOPMENT, args.development)):
+        for seed_id in split_ids(values):
+            if assign.setdefault(seed_id, split) != split:
+                sys.exit("Seed {} is listed under two splits.".format(seed_id))
+    drop = split_ids(args.drop)
+    if not assign and not drop:
+        actor = require_actor("see seed content")
+        with unit_of_work(url) as conn:
+            chooser = seed_chooser(conn, screen, targets)
+            current, assessed, stale = chooser.current(), chooser.assess_current(), chooser.stale()
+            candidates = chooser.show(actor)
+        print("  current selection     : {}".format(describe_selection(current)))
+        if assessed is not None:
+            print_coverage(assessed.coverage, assessed.gaps)
+        else:
+            print_coverage(coverage((), [c.seed for c in candidates]), None)
+        for seed_id, why in stale:
+            print("  must be dropped       : {} ({})".format(seed_id, why))
+        print("  eligible seeds        : {}".format(len(candidates)))
+        for c in candidates:
+            seed = c.seed
+            print("\n  seed {}  [{}{}]".format(seed.id, c.split or "no split",
+                                             ", chosen" if c.in_current_selection else ""))
+            print("    {} · {} · harm {} · {} · tier {}".format(
+                seed.theme_family, seed.explicitness_candidate, seed.harm_type_candidate,
+                seed.account_kind, seed.credibility_tier))
+            print("    seen by    {}".format(", ".join(c.seen_by) or "nobody before you"))
+            print("    summary    {}".format(seed.arc_summary[:240]))
+        return 0
+    actor = None if args.dry_run else require_actor("choose seeds")
+    with unit_of_work(url) as conn:
+        chooser = seed_chooser(conn, screen, targets)
+        try:
+            proposal = chooser.propose(assign, drop)
+        except ChoiceRefused as exc:
+            sys.exit(str(exc))
+        print("  proposed selection    : {} seed(s), {} pattern".format(
+            len(proposal.entries), proposal.pattern_count))
+        print_coverage(proposal.coverage, proposal.gaps)
+        if args.dry_run:
+            return 0
+        try:
+            selection = chooser.commit(proposal, actor, accept_gaps=args.accept_gaps)
+        except GapsNotAccepted as exc:
+            sys.exit("{} Re-run with --accept-gaps.".format(exc))
+    print("  recorded selection    : {}".format(describe_selection(selection)))
     return 0
 
 
@@ -336,6 +451,8 @@ def cmd_status(args, url):
         for status in sorted({d.status for d in unfinished}):
             print("    {:14s} {}".format(status, sum(1 for d in unfinished if d.status == status)))
         print_filter_summary(seed_filter(conn, overlap_screen()).seeds())
+        print("  selection             : {}".format(
+            describe_selection(PostgresSeedSelectionRepository(conn).latest())))
     return 0
 
 
@@ -364,11 +481,21 @@ def main():
     review.add_argument("--reason", help="why, in a sentence")
     review.add_argument("--correct", action="store_true",
                         help="change an earlier decision; the original is kept")
+    choose = sub.add_parser("choose", help="S3: show coverage and candidates, or make a "
+                                           "new selection")
+    for split in SPLITS:
+        choose.add_argument("--" + split, action="append", metavar="IDS",
+                            help="seed ids to add to the {} split, comma-separated".format(split))
+    choose.add_argument("--drop", action="append", metavar="IDS",
+                        help="seed ids to drop; their split still binds them")
+    choose.add_argument("--dry-run", action="store_true", help="show the result, store nothing")
+    choose.add_argument("--accept-gaps", action="store_true",
+                        help="record the selection with its coverage gaps written into it")
     sub.add_parser("status")
     args = parser.parse_args()
     url = database_url(args.database)
     return {"collect": cmd_collect, "extract": cmd_extract, "reextract": cmd_reextract,
-            "screen": cmd_screen, "review-flags": cmd_review_flags,
+            "screen": cmd_screen, "review-flags": cmd_review_flags, "choose": cmd_choose,
             "status": cmd_status}[args.command](args, url)
 
 

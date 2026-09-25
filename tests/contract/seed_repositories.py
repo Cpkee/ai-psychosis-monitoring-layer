@@ -39,6 +39,19 @@ from src.domain.seeds.repository import (
     OverlapCheckNotFound,
     ReviewConflict,
     SeedAlreadyExists,
+    SelectionConflict,
+    SplitConflict,
+)
+from src.domain.seeds.selection import (
+    CHOOSE,
+    DEVELOPMENT,
+    FLAG_REVIEW,
+    GOLD,
+    SILVER,
+    CoverageCell,
+    ExposureEvent,
+    Selection,
+    SelectionEntry,
 )
 
 EXAMPLE_TEXT = ("Example report. A 71-year-old widower described talking to a chatbot "
@@ -358,3 +371,104 @@ class SeedFilterRepositoryContract:
     def test_a_review_of_an_unknown_check_is_refused(self):
         with self.assertRaises(OverlapCheckNotFound):
             self.repository().save_review(make_review(check_id="example-missing-check"))
+
+
+EXAMPLE_CELL = CoverageCell(theme_family="A1", explicitness="explicit", harm="harm_described",
+                            gold=1, silver=0, development=1, unchosen=2, individual=1, pattern=1,
+                            tiers=(("T1", 1), ("T2", 1)))
+
+
+def make_selection(selection_id="example-selection-1", version=1, supersedes=None,
+                   entries=(("example-seed-1", GOLD), ("example-seed-2", DEVELOPMENT)),
+                   gaps=("theme family A2: 0 chosen, target at least 3",)):
+    return Selection(
+        id=selection_id, selection_version=version,
+        entries=tuple(SelectionEntry(seed_id, 1, split) for seed_id, split in entries),
+        actor_id="example-actor", created_at="2026-01-0{}T00:00:00Z".format(version),
+        coverage_targets_version="coverage_targets_v0.1#example", coverage=(EXAMPLE_CELL,),
+        gaps=gaps, pattern_count=1, supersedes=supersedes)
+
+
+class SeedSelectionRepositoryContract:
+    """The store needs seeds ``example-seed-1`` and ``example-seed-2``."""
+
+    def repository(self):
+        raise NotImplementedError
+
+    def test_nothing_is_chosen_until_a_selection_is_saved(self):
+        repo = self.repository()
+        self.assertIsNone(repo.latest())
+        self.assertEqual(repo.list_splits(), ())
+
+    def test_a_selection_round_trips_with_its_coverage_and_gaps(self):
+        repo = self.repository()
+        selection = repo.save(make_selection())
+        self.assertEqual(repo.latest(), selection)
+        self.assertEqual(repo.list_splits(), (("example-seed-1", GOLD),
+                                              ("example-seed-2", DEVELOPMENT)))
+
+    def test_a_dropped_seed_keeps_its_split(self):
+        repo = self.repository()
+        repo.save(make_selection())
+        second = repo.save(make_selection("example-selection-2", 2, "example-selection-1",
+                                          entries=(("example-seed-1", GOLD),), gaps=()))
+        self.assertEqual(repo.latest(), second)
+        self.assertIn(("example-seed-2", DEVELOPMENT), repo.list_splits())
+
+    def test_a_seed_never_changes_split_and_nothing_is_stored(self):
+        repo = self.repository()
+        first = repo.save(make_selection())
+        with self.assertRaises(SplitConflict):
+            repo.save(make_selection("example-selection-2", 2, "example-selection-1",
+                                     entries=(("example-seed-1", GOLD),
+                                              ("example-seed-2", SILVER))))
+        self.assertEqual(repo.latest(), first)
+        self.assertIn(("example-seed-2", DEVELOPMENT), repo.list_splits())
+        repo.save(make_selection("example-selection-2", 2, "example-selection-1"))
+
+    def test_a_split_taken_by_a_dropped_seed_still_binds_it(self):
+        repo = self.repository()
+        repo.save(make_selection())
+        repo.save(make_selection("example-selection-2", 2, "example-selection-1",
+                                 entries=(("example-seed-1", GOLD),)))
+        with self.assertRaises(SplitConflict):
+            repo.save(make_selection("example-selection-3", 3, "example-selection-2",
+                                     entries=(("example-seed-2", GOLD),)))
+
+    def test_the_history_cannot_fork(self):
+        repo = self.repository()
+        repo.save(make_selection())
+        repo.save(make_selection("example-selection-2", 2, "example-selection-1"))
+        for fork in (make_selection("example-selection-3", 3, "example-selection-1"),
+                     make_selection("example-selection-4", 2, "example-selection-2"),
+                     make_selection("example-selection-5"),
+                     make_selection("example-selection-6", 3, "example-missing-selection"),
+                     make_selection("example-selection-1", 3, "example-selection-2")):
+            with self.subTest(selection=fork.id), self.assertRaises(SelectionConflict):
+                repo.save(fork)
+        self.assertEqual(repo.latest().id, "example-selection-2")
+
+
+class SeedExposureRepositoryContract:
+    """The store needs seeds ``example-seed-1`` and ``example-seed-2``."""
+
+    def repository(self):
+        raise NotImplementedError
+
+    def test_the_first_exposure_wins(self):
+        repo = self.repository()
+        first = ExposureEvent("example-seed-1", "example-actor", CHOOSE, "2026-01-01T00:00:00Z")
+        self.assertEqual(repo.record(first), first)
+        again = ExposureEvent("example-seed-1", "example-actor", CHOOSE, "2026-01-05T00:00:00Z")
+        self.assertEqual(repo.record(again), first)
+        self.assertEqual(repo.list_events(), (first,))
+
+    def test_events_are_listed_oldest_first(self):
+        repo = self.repository()
+        later = repo.record(ExposureEvent("example-seed-1", "example-actor", CHOOSE,
+                                          "2026-01-02T00:00:00Z"))
+        earlier = repo.record(ExposureEvent("example-seed-2", "example-other-actor",
+                                            FLAG_REVIEW, "2026-01-01T00:00:00Z"))
+        also = repo.record(ExposureEvent("example-seed-1", "example-actor", FLAG_REVIEW,
+                                         "2026-01-03T00:00:00Z"))
+        self.assertEqual(repo.list_events(), (earlier, later, also))

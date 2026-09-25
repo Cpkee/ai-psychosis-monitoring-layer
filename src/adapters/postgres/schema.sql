@@ -350,3 +350,61 @@ CREATE TABLE IF NOT EXISTS seed_flag_reviews (
 
 CREATE UNIQUE INDEX IF NOT EXISTS flag_reviews_one_first_review
     ON seed_flag_reviews (overlap_check_id) WHERE supersedes IS NULL;
+
+-- S3 Choose (D-34, D-35, D-49). Selections are immutable snapshots in one
+-- unbroken chain: versions are unique, no selection is superseded twice, and
+-- only version 1 supersedes nothing.
+CREATE TABLE IF NOT EXISTS seed_selections (
+    id                       TEXT PRIMARY KEY,
+    selection_version        INTEGER NOT NULL UNIQUE,
+    actor_id                 TEXT NOT NULL,
+    created_at               TEXT NOT NULL,
+    coverage_targets_version TEXT NOT NULL,
+    -- An array of cells: JSONB keeps array order, not object key order (D-16).
+    coverage                 JSONB NOT NULL,
+    gaps                     TEXT[] NOT NULL,
+    pattern_count            INTEGER NOT NULL,
+    supersedes               TEXT UNIQUE REFERENCES seed_selections (id),
+
+    CONSTRAINT selection_version_positive CHECK (selection_version >= 1),
+    CONSTRAINT selection_first_supersedes_nothing
+        CHECK ((supersedes IS NULL) = (selection_version = 1)),
+    CONSTRAINT selection_has_actor CHECK (btrim(actor_id) <> ''),
+    CONSTRAINT selection_pattern_count_valid CHECK (pattern_count >= 0)
+);
+
+-- One split per seed, for ever (D-34): a seed dropped from a later selection
+-- keeps it, and every entry must agree with it.
+CREATE TABLE IF NOT EXISTS seed_splits (
+    seed_id     TEXT PRIMARY KEY REFERENCES seeds (id),
+    split       TEXT NOT NULL,
+    assigned_in TEXT NOT NULL REFERENCES seed_selections (id),
+
+    CONSTRAINT split_valid CHECK (split IN ('gold', 'silver', 'development')),
+    CONSTRAINT split_per_seed UNIQUE (seed_id, split)
+);
+
+CREATE TABLE IF NOT EXISTS seed_selection_entries (
+    selection_id TEXT NOT NULL REFERENCES seed_selections (id),
+    seed_id      TEXT NOT NULL,
+    seed_version INTEGER NOT NULL,
+    split        TEXT NOT NULL,
+    ordinal      INTEGER NOT NULL,
+
+    PRIMARY KEY (selection_id, seed_id),
+    CONSTRAINT entry_matches_seed_split FOREIGN KEY (seed_id, split)
+        REFERENCES seed_splits (seed_id, split)
+);
+
+-- Who has been shown a seed's content. Blind annotation of a seed's
+-- conversations excludes everyone listed here (D-34).
+CREATE TABLE IF NOT EXISTS seed_exposure (
+    seed_id     TEXT NOT NULL REFERENCES seeds (id),
+    actor_id    TEXT NOT NULL,
+    activity    TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+
+    PRIMARY KEY (seed_id, actor_id, activity),
+    CONSTRAINT exposure_activity_valid CHECK (activity IN ('flag_review', 'choose')),
+    CONSTRAINT exposure_has_actor CHECK (btrim(actor_id) <> '')
+);

@@ -12,6 +12,7 @@ import dataclasses
 from typing import Any, Optional, Tuple
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from src.domain.seeds.overlap import FlagReview, OverlapCheck
 from src.domain.seeds.records import (
@@ -30,7 +31,10 @@ from src.domain.seeds.repository import (
     OverlapCheckNotFound,
     ReviewConflict,
     SeedAlreadyExists,
+    SelectionConflict,
+    SplitConflict,
 )
+from src.domain.seeds.selection import CoverageCell, ExposureEvent, Selection, SelectionEntry
 
 _QUERY_COLUMNS = ("id", "source", "query_id", "query_text", "query_config_version",
                   "executed_at", "result_ids")
@@ -39,6 +43,8 @@ _SEED_COLUMNS = tuple(f.name for f in dataclasses.fields(Seed))
 _SEED_ARRAYS = {"raw_theme_terms", "reported_phase_progression", "companion_behaviour_reported"}
 _CHECK_COLUMNS = tuple(f.name for f in dataclasses.fields(OverlapCheck))
 _REVIEW_COLUMNS = tuple(f.name for f in dataclasses.fields(FlagReview))
+_SELECTION_COLUMNS = tuple(f.name for f in dataclasses.fields(Selection) if f.name != "entries")
+_EXPOSURE_COLUMNS = tuple(f.name for f in dataclasses.fields(ExposureEvent))
 
 
 def _insert(table: str, columns) -> str:
@@ -227,3 +233,85 @@ class PostgresSeedFilterRepository:
         fields = dict(zip(_CHECK_COLUMNS, row))
         fields["reasons"] = tuple(fields["reasons"])
         return OverlapCheck(**fields)
+
+
+class PostgresSeedSelectionRepository:
+    def __init__(self, connection: psycopg.Connection):
+        self._connection = connection
+
+    def save(self, selection: Selection) -> Selection:
+        values = {c: getattr(selection, c) for c in _SELECTION_COLUMNS}
+        values["coverage"] = Jsonb([dataclasses.asdict(cell) for cell in selection.coverage])
+        values["gaps"] = list(selection.gaps)
+        # A savepoint makes the selection, its splits and its entries
+        # all-or-nothing even if the caller carries on.
+        with self._connection.transaction():
+            self._insert_selection(values)
+            for ordinal, entry in enumerate(selection.entries):
+                self._assign_split(entry, selection.id)
+                self._connection.execute(
+                    "INSERT INTO seed_selection_entries (selection_id, seed_id, seed_version, "
+                    "split, ordinal) VALUES (%s, %s, %s, %s, %s)",
+                    (selection.id, entry.seed_id, entry.seed_version, entry.split, ordinal))
+        return selection
+
+    def latest(self) -> Optional[Selection]:
+        row = self._connection.execute(
+            "SELECT {} FROM seed_selections s WHERE NOT EXISTS "
+            "(SELECT 1 FROM seed_selections t WHERE t.supersedes = s.id)".format(
+                ", ".join("s." + c for c in _SELECTION_COLUMNS))).fetchone()
+        if row is None:
+            return None
+        fields = dict(zip(_SELECTION_COLUMNS, row))
+        fields["coverage"] = tuple(
+            CoverageCell(**dict(cell, tiers=tuple(tuple(t) for t in cell["tiers"])))
+            for cell in fields["coverage"])
+        fields["gaps"] = tuple(fields["gaps"])
+        entries = self._connection.execute(
+            "SELECT seed_id, seed_version, split FROM seed_selection_entries "
+            "WHERE selection_id = %s ORDER BY ordinal", (fields["id"],)).fetchall()
+        return Selection(entries=tuple(SelectionEntry(*e) for e in entries), **fields)
+
+    def list_splits(self) -> Tuple[Tuple[str, str], ...]:
+        rows = self._connection.execute(
+            "SELECT seed_id, split FROM seed_splits ORDER BY seed_id").fetchall()
+        return tuple((row[0], row[1]) for row in rows)
+
+    def _insert_selection(self, values) -> None:
+        try:
+            with self._connection.transaction():
+                self._connection.execute(_insert("seed_selections", tuple(values)),
+                                         list(values.values()))
+        except (psycopg.errors.UniqueViolation, psycopg.errors.ForeignKeyViolation):
+            raise SelectionConflict("Selection {!r} does not extend the selection "
+                                    "history.".format(values["id"]))
+
+    def _assign_split(self, entry: SelectionEntry, selection_id: str) -> None:
+        self._connection.execute(
+            "INSERT INTO seed_splits (seed_id, split, assigned_in) VALUES (%s, %s, %s) "
+            "ON CONFLICT (seed_id) DO NOTHING", (entry.seed_id, entry.split, selection_id))
+        held = self._connection.execute(
+            "SELECT split FROM seed_splits WHERE seed_id = %s", (entry.seed_id,)).fetchone()[0]
+        if held != entry.split:
+            raise SplitConflict("Seed {!r} is already {}.".format(entry.seed_id, held))
+
+
+class PostgresSeedExposureRepository:
+    def __init__(self, connection: psycopg.Connection):
+        self._connection = connection
+
+    def record(self, event: ExposureEvent) -> ExposureEvent:
+        self._connection.execute(
+            _insert("seed_exposure", _EXPOSURE_COLUMNS) + " ON CONFLICT DO NOTHING",
+            [getattr(event, c) for c in _EXPOSURE_COLUMNS])
+        row = self._connection.execute(
+            "SELECT {} FROM seed_exposure WHERE seed_id = %s AND actor_id = %s "
+            "AND activity = %s".format(", ".join(_EXPOSURE_COLUMNS)),
+            (event.seed_id, event.actor_id, event.activity)).fetchone()
+        return ExposureEvent(*row)
+
+    def list_events(self) -> Tuple[ExposureEvent, ...]:
+        rows = self._connection.execute(
+            "SELECT {} FROM seed_exposure ORDER BY recorded_at, seed_id, actor_id, "
+            "activity".format(", ".join(_EXPOSURE_COLUMNS))).fetchall()
+        return tuple(ExposureEvent(*row) for row in rows)

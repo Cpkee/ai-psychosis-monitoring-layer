@@ -91,6 +91,22 @@ class OverlapScreenConfig:
     stopwords: FrozenSet[str]
 
 
+@dataclasses.dataclass(frozen=True)
+class CoverageTargets:
+    #: Name and a fingerprint of every setting, as for the overlap screen.
+    version: str
+    min_per_theme_family: Mapping[str, int]
+    min_per_explicitness: Mapping[str, int]
+    min_per_harm: Mapping[str, int]
+    max_pattern_share: float
+    every_theme_family_in_splits: Tuple[str, ...]
+
+
+def _fingerprinted(name: str, settings: Mapping[str, Any]) -> str:
+    digest = hashlib.sha256(json.dumps(settings, sort_keys=True).encode("utf-8")).hexdigest()
+    return "{}#{}".format(name, digest[:12])
+
+
 def _read(name: str, config_dir: Optional[str]) -> Dict[str, Any]:
     path = os.path.join(config_dir or CONFIG_DIR, "{}.json".format(name))
     if not os.path.exists(path):
@@ -150,12 +166,24 @@ def load_overlap_screen(version: str, config_dir: Optional[str] = None) -> Overl
     document = _read(version, config_dir)
     settings = {"max_span_sentences": document["max_span_sentences"],
                 "harm_type_match": document["harm_type_match"]}
-    fingerprint = hashlib.sha256(
-        json.dumps(settings, sort_keys=True).encode("utf-8")).hexdigest()[:12]
     match = document["harm_type_match"]
     return OverlapScreenConfig(
-        version="{}#{}".format(document["overlap_screen_version"], fingerprint),
+        version=_fingerprinted(document["overlap_screen_version"], settings),
         max_span_sentences=int(document["max_span_sentences"]),
         min_jaccard=float(match["min_jaccard"]),
         stopwords=frozenset(w.lower() for w in match["stopwords"]),
+    )
+
+
+def load_coverage_targets(version: str, config_dir: Optional[str] = None) -> CoverageTargets:
+    document = _read(version, config_dir)
+    settings = {k: v for k, v in document.items()
+                if k not in ("coverage_targets_version", "status", "description")}
+    return CoverageTargets(
+        version=_fingerprinted(document["coverage_targets_version"], settings),
+        min_per_theme_family={k: int(v) for k, v in document["min_per_theme_family"].items()},
+        min_per_explicitness={k: int(v) for k, v in document["min_per_explicitness"].items()},
+        min_per_harm={k: int(v) for k, v in document["min_per_harm"].items()},
+        max_pattern_share=float(document["max_pattern_share"]),
+        every_theme_family_in_splits=tuple(document["every_theme_family_in_splits"]),
     )

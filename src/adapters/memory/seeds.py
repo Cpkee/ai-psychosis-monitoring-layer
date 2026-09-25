@@ -21,7 +21,10 @@ from src.domain.seeds.repository import (
     OverlapCheckNotFound,
     ReviewConflict,
     SeedAlreadyExists,
+    SelectionConflict,
+    SplitConflict,
 )
+from src.domain.seeds.selection import ExposureEvent, Selection
 
 
 class InMemorySourceDocumentRepository:
@@ -152,3 +155,47 @@ class InMemorySeedFilterRepository:
     @staticmethod
     def _key(check: OverlapCheck):
         return (check.seed_id, check.screen_version, check.manifest_sha256)
+
+
+class InMemorySeedSelectionRepository:
+    def __init__(self) -> None:
+        self._selections: List[Selection] = []
+        self._splits: Dict[str, str] = {}
+
+    def save(self, selection: Selection) -> Selection:
+        forks = any(
+            s.id == selection.id or s.selection_version == selection.selection_version
+            or (selection.supersedes is not None and s.supersedes == selection.supersedes)
+            for s in self._selections
+        ) or (selection.supersedes is not None
+              and selection.supersedes not in {s.id for s in self._selections})
+        if forks:
+            raise SelectionConflict("Selection {!r} does not extend the selection history.".format(
+                selection.id))
+        for entry in selection.entries:
+            if self._splits.get(entry.seed_id, entry.split) != entry.split:
+                raise SplitConflict("Seed {!r} is already {}.".format(
+                    entry.seed_id, self._splits[entry.seed_id]))
+        for entry in selection.entries:
+            self._splits.setdefault(entry.seed_id, entry.split)
+        self._selections.append(selection)
+        return selection
+
+    def latest(self) -> Optional[Selection]:
+        superseded = {s.supersedes for s in self._selections}
+        return next((s for s in self._selections if s.id not in superseded), None)
+
+    def list_splits(self) -> Tuple[Tuple[str, str], ...]:
+        return tuple(sorted(self._splits.items()))
+
+
+class InMemorySeedExposureRepository:
+    def __init__(self) -> None:
+        self._events: Dict[Tuple[str, str, str], ExposureEvent] = {}
+
+    def record(self, event: ExposureEvent) -> ExposureEvent:
+        return self._events.setdefault((event.seed_id, event.actor_id, event.activity), event)
+
+    def list_events(self) -> Tuple[ExposureEvent, ...]:
+        return tuple(sorted(self._events.values(), key=lambda e: (
+            e.recorded_at, e.seed_id, e.actor_id, e.activity)))

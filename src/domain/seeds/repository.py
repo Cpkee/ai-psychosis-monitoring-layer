@@ -1,10 +1,12 @@
 """Repositories for the seed pipeline.
 
-Four aggregates: source documents (with the query log that found them), the
-extraction cache, seeds, and the Filter's overlap checks with their reviews.
-Storage owns uniqueness (D-6): one document per content hash, one cache entry
-per key, one seed per id, one check per seed and screen, and one unbroken
-chain of reviews per check.
+Six aggregates: source documents (with the query log that found them), the
+extraction cache, seeds, the Filter's overlap checks with their reviews,
+selections with their split assignments, and the exposure log. Storage owns
+uniqueness (D-6): one document per content hash, one cache entry per key, one
+seed per id, one check per seed and screen, one unbroken chain of reviews per
+check, one unbroken chain of selections, one split per seed for ever, and one
+exposure per seed, person and activity.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from src.domain.seeds.records import (
     Seed,
     SourceDocument,
 )
+from src.domain.seeds.selection import ExposureEvent, Selection
 
 
 class DocumentNotFound(LookupError):
@@ -49,6 +52,15 @@ class ReviewConflict(ValueError):
     """The review would fork the check's history: the check already has a
     review this one does not supersede, the superseded review was already
     superseded, or it belongs to another check."""
+
+
+class SelectionConflict(ValueError):
+    """The selection would fork the history: its version or the selection it
+    supersedes is already taken, or it is a second first selection."""
+
+
+class SplitConflict(ValueError):
+    """A seed already holds a different split. Splits never change (D-34)."""
 
 
 class SourceDocumentRepository(Protocol):
@@ -113,3 +125,26 @@ class SeedFilterRepository(Protocol):
 
     def latest_review(self, check_id: str) -> Optional[FlagReview]:
         """The review no other review supersedes, if the check has any."""
+
+
+class SeedSelectionRepository(Protocol):
+    def save(self, selection: Selection) -> Selection:
+        """Store the selection and its entries, and assign a split to every
+        chosen seed that has none, all or nothing. Raises
+        :class:`SelectionConflict` or :class:`SplitConflict`."""
+
+    def latest(self) -> Optional[Selection]:
+        """The selection no other supersedes, if any has been made."""
+
+    def list_splits(self) -> Tuple[Tuple[str, str], ...]:
+        """(seed id, split) for every seed ever chosen, by seed id. Includes
+        seeds dropped from later selections: their split still binds them."""
+
+
+class SeedExposureRepository(Protocol):
+    def record(self, event: ExposureEvent) -> ExposureEvent:
+        """Insert if absent, keyed by (seed, actor, activity); the first
+        exposure wins and is returned."""
+
+    def list_events(self) -> Tuple[ExposureEvent, ...]:
+        """Every exposure, oldest first."""
