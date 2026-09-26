@@ -5,7 +5,7 @@
 **Canonical for:** how source material becomes seeds, how seeds become simulated conversations, and how those conversations get human-checked and labelled.
 **Position in the build order:** the **S-series**, after increment 7 (Alerting) and before increment 8 (Review). See [`IMPLEMENTATION_FOUNDATION.md` §8](IMPLEMENTATION_FOUNDATION.md#8-build-order).
 
-> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-50** (D-46 and D-47 are scope decisions that also bind it) in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
+> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-53** (D-46 and D-47 are scope decisions that also bind it) in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
 
 **Every identifier, value, threshold and field name below is an example** unless this plan states it is decided.
 

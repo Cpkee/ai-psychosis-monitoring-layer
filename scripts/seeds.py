@@ -64,7 +64,7 @@ from src.modules.seeds.runner import REEXTRACTABLE, SeedExtractionRunner
 from src.modules.seeds.seal_screen import SealScreen
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSIONS = dict(queries="queries_v0.2", tiers="credibility_tiers_v0.1",
+VERSIONS = dict(queries="queries_v0.4", tiers="credibility_tiers_v0.1",
                 vocabulary="seed_vocabulary_v0.2", extraction="extraction_v0.1",
                 overlap_screen="overlap_screen_v0.1", coverage_targets="coverage_targets_v0.1")
 #: What each reason code means, for the person reviewing. Never sealed text.
@@ -419,6 +419,10 @@ def cmd_choose(args, url):
             print("    {} · {} · harm {} · {} · tier {}".format(
                 seed.theme_family, seed.explicitness_candidate, seed.harm_type_candidate,
                 seed.account_kind, seed.credibility_tier))
+            document = c.screened.document
+            print("    source     {} · {}".format(document.title[:90],
+                                              document.external_id or document.source_type))
+            print("               {}".format(seed.source_url))
             print("    seen by    {}".format(", ".join(c.seen_by) or "nobody before you"))
             print("    summary    {}".format(seed.arc_summary[:240]))
         return 0

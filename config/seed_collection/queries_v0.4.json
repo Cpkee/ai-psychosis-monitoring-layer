@@ -1,0 +1,37 @@
+{
+  "query_config_version": "queries_v0.4",
+  "status": "draft",
+  "description": "Automated searches (D-24). Every run logs the query text, time and result ids. v0.2 (D-43): the older-adult filter is removed. v0.3 (D-51): `psychos*` also matched 'psychosocial' and 'psychosomatic', and a bare `attachment` matched any attachment, so most PubMed results were off-topic; both are narrowed. v0.4 (D-53): two searches for theme family A1 (spiritual or messianic beliefs), which the corpus lacked; their terms come from the A1 definition in README.md and seed_vocabulary_v0.2.json, never from Psychosis-Bench. Example queries, provisional: tune them against what they return, never against Psychosis-Bench.",
+  "queries": [
+    {
+      "query_id": "pubmed-ai-companion-beliefs",
+      "source": "pubmed",
+      "text": "(chatbot[tiab] OR \"conversational agent\"[tiab] OR \"large language model\"[tiab] OR \"AI companion\"[tiab] OR ChatGPT[tiab]) AND (delusion*[tiab] OR psychosis[tiab] OR psychotic[tiab] OR \"emotional dependence\"[tiab] OR \"emotional attachment\"[tiab] OR \"emotional reliance\"[tiab] OR parasocial[tiab])",
+      "max_results": 20
+    },
+    {
+      "query_id": "pubmed-ai-chatbot-case-reports",
+      "source": "pubmed",
+      "text": "(chatbot[tiab] OR \"large language model\"[tiab] OR ChatGPT[tiab] OR \"AI companion\"[tiab]) AND (delusion*[tiab] OR psychosis[tiab] OR psychotic[tiab] OR mania[tiab] OR manic[tiab]) AND \"case reports\"[pt]",
+      "max_results": 20
+    },
+    {
+      "query_id": "arxiv-ai-companion-dependence",
+      "source": "arxiv",
+      "text": "abs:\"AI companion\" AND (abs:dependence OR abs:attachment OR abs:delusion)",
+      "max_results": 20
+    },
+    {
+      "query_id": "pubmed-ai-spiritual-beliefs",
+      "source": "pubmed",
+      "text": "(chatbot[tiab] OR \"conversational agent\"[tiab] OR \"large language model\"[tiab] OR \"AI companion\"[tiab] OR ChatGPT[tiab]) AND (spiritual*[tiab] OR religio*[tiab] OR messiah*[tiab] OR messianic[tiab] OR grandios*[tiab] OR awakening[tiab] OR destiny[tiab] OR mystical[tiab])",
+      "max_results": 20
+    },
+    {
+      "query_id": "arxiv-ai-spiritual-beliefs",
+      "source": "arxiv",
+      "text": "(abs:chatbot OR abs:\"AI companion\" OR abs:ChatGPT OR abs:\"language model\") AND (abs:spiritual OR abs:messianic OR abs:grandiose OR abs:awakening OR abs:destiny)",
+      "max_results": 20
+    }
+  ]
+}

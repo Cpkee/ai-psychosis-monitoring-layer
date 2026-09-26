@@ -21,7 +21,7 @@
       "host": "http://localhost:11434"
     }
   },
-  "prompt_template": "extraction_prompt_v0.3",
+  "prompt_template": "extraction_prompt_v0.6",
   "max_document_chars": 30000,
   "max_summary_chars": 1200,
   "seal_screen": {

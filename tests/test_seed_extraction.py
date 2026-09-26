@@ -51,9 +51,24 @@ class Prompt(unittest.TestCase):
                 list(VOCABULARY.companion_behaviours) + list(VOCABULARY.account_kinds):
             self.assertIn("`{}`".format(code), text)
         for placeholder in ("{theme_lines}", "{phase_lines}", "{behaviour_lines}",
-                            "{explicitness_values}", "{account_kind_lines}", "{document}"):
+                            "{explicitness_values}", "{account_kind_lines}",
+                            "{prohibited_terms}", "{document}"):
             self.assertNotIn(placeholder, text)
         self.assertNotIn("<!--", text)
+
+    def test_the_prompt_lists_every_word_the_validator_refuses(self):
+        """D-52: the model is told exactly what the validator will reject."""
+        text = PromptRenderer(CONFIG, VOCABULARY).render("Example document.").text
+        for term in VOCABULARY.prohibited_terms:
+            self.assertIn('"{}"'.format(term), text)
+        self.assertIn("even inside", text)
+        self.assertIn("even when reporting what the AI or other people said", text)
+
+    def test_only_accounts_in_scope_are_asked_for(self):
+        """D-51: ordinary use of an AI is not an account."""
+        text = PromptRenderer(CONFIG, VOCABULARY).render("Example document.").text
+        self.assertIn("# What counts as an account", text)
+        self.assertIn("A document with no qualifying account yields an empty", text)
 
     def test_braces_inside_the_document_are_left_alone(self):
         text = PromptRenderer(CONFIG, VOCABULARY).render("Example {theme_lines} text.").text

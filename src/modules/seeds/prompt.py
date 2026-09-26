@@ -97,6 +97,9 @@ class PromptRenderer:
                 '"{}"'.format(v) for v in self._vocabulary.explicitness),
             "{behaviour_lines}": _lines(self._vocabulary.companion_behaviours),
             "{account_kind_lines}": _lines(self._vocabulary.account_kinds),
+            # The same list the validator refuses (D-52), so they cannot drift.
+            "{prohibited_terms}": ", ".join(
+                '"{}"'.format(t) for t in self._vocabulary.prohibited_terms),
         }
         text = self._template
         for placeholder, value in values.items():
