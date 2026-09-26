@@ -12,6 +12,11 @@ pattern seeds (D-44), and every coverage gap the chooser accepted (D-35).
 
 The **exposure log** records who has been shown a seed's content, so a person
 exposed to a seed is never assigned to annotate its conversations blind (D-34).
+
+A **relevance decision** lets a person exclude an off-topic seed from choosing
+(D-54): the extractor sometimes makes a seed from a document with no qualifying
+account. Decisions are append-only; undoing an exclusion is a new decision that
+supersedes it.
 """
 
 from __future__ import annotations
@@ -28,6 +33,10 @@ SPLITS = (GOLD, SILVER, DEVELOPMENT)
 FLAG_REVIEW = "flag_review"
 CHOOSE = "choose"
 ACTIVITIES = (FLAG_REVIEW, CHOOSE)
+
+EXCLUDE = "exclude"
+INCLUDE = "include"
+RELEVANCE_DECISIONS = (EXCLUDE, INCLUDE)
 
 #: Coverage buckets for a seed with no theme family, and for its harm type.
 NO_THEME = "none"
@@ -109,3 +118,28 @@ class ExposureEvent:
             raise ValueError("Unknown exposure activity {!r}.".format(self.activity))
         if not self.actor_id.strip():
             raise ValueError("An exposure needs an actor id.")
+
+
+@dataclasses.dataclass(frozen=True)
+class RelevanceDecision:
+    id: str
+    seed_id: str
+    decision: str
+    reason: str
+    #: From APML_ACTOR_ID: attribution, not authentication (plan §4.3).
+    actor_id: str
+    recorded_at: str
+    #: The decision this one corrects. An inclusion only ever undoes an exclusion.
+    supersedes: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.decision not in RELEVANCE_DECISIONS:
+            raise ValueError("A relevance decision is {}, not {!r}.".format(
+                " or ".join(RELEVANCE_DECISIONS), self.decision))
+        if self.decision == INCLUDE and self.supersedes is None:
+            raise ValueError("Every seed is included until excluded; an inclusion only "
+                             "undoes an exclusion.")
+        if not self.reason.strip():
+            raise ValueError("A relevance decision needs a reason.")
+        if not self.actor_id.strip():
+            raise ValueError("A relevance decision needs an actor id.")

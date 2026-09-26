@@ -8,6 +8,7 @@ from src.adapters.memory.seeds import (
     InMemoryExtractionCacheRepository,
     InMemorySeedExposureRepository,
     InMemorySeedFilterRepository,
+    InMemorySeedRelevanceRepository,
     InMemorySeedRepository,
     InMemorySeedSelectionRepository,
     InMemorySourceDocumentRepository,
@@ -17,6 +18,7 @@ from tests.contract.seed_repositories import (
     ProcessedVersionsContract,
     SeedExposureRepositoryContract,
     SeedFilterRepositoryContract,
+    SeedRelevanceRepositoryContract,
     SeedRepositoryContract,
     SeedSelectionRepositoryContract,
     SourceDocumentRepositoryContract,
@@ -56,6 +58,11 @@ class InMemorySeedSelectionRepositoryTest(SeedSelectionRepositoryContract, unitt
 class InMemorySeedExposureRepositoryTest(SeedExposureRepositoryContract, unittest.TestCase):
     def repository(self):
         return InMemorySeedExposureRepository()
+
+
+class InMemorySeedRelevanceRepositoryTest(SeedRelevanceRepositoryContract, unittest.TestCase):
+    def repository(self):
+        return InMemorySeedRelevanceRepository()
 
 
 if __name__ == "__main__":

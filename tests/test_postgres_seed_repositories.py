@@ -11,6 +11,7 @@ from tests.contract.seed_repositories import (
     ProcessedVersionsContract,
     SeedExposureRepositoryContract,
     SeedFilterRepositoryContract,
+    SeedRelevanceRepositoryContract,
     SeedRepositoryContract,
     SeedSelectionRepositoryContract,
     SourceDocumentRepositoryContract,
@@ -122,6 +123,18 @@ class PostgresSeedExposureRepositoryTest(_Postgres, SeedExposureRepositoryContra
         from src.adapters.postgres.seeds import PostgresSeedExposureRepository
 
         return PostgresSeedExposureRepository(self._connection)
+
+
+@unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")
+class PostgresSeedRelevanceRepositoryTest(_Postgres, SeedRelevanceRepositoryContract,
+                                          unittest.TestCase):
+    store_document = True
+    store_seeds = True
+
+    def repository(self):
+        from src.adapters.postgres.seeds import PostgresSeedRelevanceRepository
+
+        return PostgresSeedRelevanceRepository(self._connection)
 
 
 @unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")

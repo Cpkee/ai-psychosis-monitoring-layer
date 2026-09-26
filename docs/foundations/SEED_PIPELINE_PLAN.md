@@ -5,7 +5,7 @@
 **Canonical for:** how source material becomes seeds, how seeds become simulated conversations, and how those conversations get human-checked and labelled.
 **Position in the build order:** the **S-series**, after increment 7 (Alerting) and before increment 8 (Review). See [`IMPLEMENTATION_FOUNDATION.md` §8](IMPLEMENTATION_FOUNDATION.md#8-build-order).
 
-> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-53** (D-46 and D-47 are scope decisions that also bind it) in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
+> **Precedence.** [`architecture.md`](../../architecture.md) wins over this document. Decisions taken here are recorded as **D-23…D-54** (D-46 and D-47 are scope decisions that also bind it) in [`IMPLEMENTATION_FOUNDATION.md` §10](IMPLEMENTATION_FOUNDATION.md#10-decisions-taken-during-implementation), and the questions this plan opens are **OD-022…OD-027** in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
 
 **Every identifier, value, threshold and field name below is an example** unless this plan states it is decided.
 
@@ -273,7 +273,7 @@ Each increment leaves the suite green in both modes and ends with a **CLI comman
 | **S0** ✅ | Scope and registration | PROJECT_SCOPE §1.2 and §7 amended; DS-14/DS-15 registered in the contracts and in `config/data_sources.json`, with governance tests; D-records and ODs written | Dataset Use Gate (config is executable) |
 | **S1** ✅ | Collect | `SourceDocumentRepository`, `ExtractionCacheRepository`, `SeedRepository`; PubMed/arXiv search with query log; URL/file input (**no PDFs yet**, D-40); snapshotting; **pre-extraction seal screen**; extractor provider seam (Gemini, Ollama, fake); tier rule; per-document resume; shared-DB guard and test refusal (**migrations wait for the shared DB**, D-40) | `seeds collect`, `seeds extract`, `seeds reextract` (D-45), `seeds status` |
 | **S2** ✅ | Filter | Post-extraction overlap screen (`overlap_screen_v0.1`) and metadata flags; `SeedFilterRepository` (overlap checks, append-only flag reviews); human keep/exclude with `APML_ACTOR_ID`; eligibility for Choose (D-48) | `seeds screen`, `seeds review-flags` |
-| **S3** ✅ | Choose | Coverage matrix, `coverage_targets_v0.1`, selection records, **split by seed** (one per seed, for ever), exposure log (choose and flag review); `SeedSelectionRepository`, `SeedExposureRepository` (D-49) | `seeds choose` |
+| **S3** ✅ | Choose | Coverage matrix, `coverage_targets_v0.1`, selection records, **split by seed** (one per seed, for ever), exposure log (choose and flag review); `SeedSelectionRepository`, `SeedExposureRepository` (D-49); off-topic exclusion, `SeedRelevanceRepository` (D-54) | `seeds choose`, `seeds exclude` |
 | **S4** | Scenario and persona | Persona set, Scenario Engine, derived benign counterparts, `ScenarioRepository` | `scenarios build` |
 | **S5** | Generate | Simulated user + hidden-state updater, reference companions, Anthropic provider, model-family registry and **start-up refusal**, spend cap and ledger, conversation cache, ingestion via Orchestrator; **simulated-user pilot run**, with the result recorded as a D-record | `conversations generate`, `pilot simuser` |
 | **S6** | Review | Realism sample rule, rating records, revise-and-regenerate lineage with `supersedes` | `review rate`, `review revise` |

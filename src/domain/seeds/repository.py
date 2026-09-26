@@ -1,12 +1,13 @@
 """Repositories for the seed pipeline.
 
-Six aggregates: source documents (with the query log that found them), the
+Seven aggregates: source documents (with the query log that found them), the
 extraction cache, seeds, the Filter's overlap checks with their reviews,
-selections with their split assignments, and the exposure log. Storage owns
-uniqueness (D-6): one document per content hash, one cache entry per key, one
-seed per id, one check per seed and screen, one unbroken chain of reviews per
-check, one unbroken chain of selections, one split per seed for ever, and one
-exposure per seed, person and activity.
+selections with their split assignments, the exposure log, and relevance
+decisions. Storage owns uniqueness (D-6): one document per content hash, one
+cache entry per key, one seed per id, one check per seed and screen, one
+unbroken chain of reviews per check, one unbroken chain of selections, one
+split per seed for ever, one exposure per seed, person and activity, and one
+unbroken chain of relevance decisions per seed.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from src.domain.seeds.records import (
     Seed,
     SourceDocument,
 )
-from src.domain.seeds.selection import ExposureEvent, Selection
+from src.domain.seeds.selection import ExposureEvent, RelevanceDecision, Selection
 
 
 class DocumentNotFound(LookupError):
@@ -61,6 +62,12 @@ class SelectionConflict(ValueError):
 
 class SplitConflict(ValueError):
     """A seed already holds a different split. Splits never change (D-34)."""
+
+
+class RelevanceConflict(ValueError):
+    """The decision would fork the seed's history: the seed already has a first
+    decision, the superseded decision was already superseded, or it belongs to
+    another seed."""
 
 
 class SourceDocumentRepository(Protocol):
@@ -148,3 +155,11 @@ class SeedExposureRepository(Protocol):
 
     def list_events(self) -> Tuple[ExposureEvent, ...]:
         """Every exposure, oldest first."""
+
+
+class SeedRelevanceRepository(Protocol):
+    def save(self, decision: RelevanceDecision) -> RelevanceDecision:
+        """Append a decision. Raises :class:`RelevanceConflict`."""
+
+    def list_latest(self) -> Tuple[RelevanceDecision, ...]:
+        """For every seed with a decision, the one no other supersedes, by seed id."""

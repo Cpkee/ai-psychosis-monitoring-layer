@@ -21,10 +21,11 @@ from src.domain.seeds.repository import (
     OverlapCheckNotFound,
     ReviewConflict,
     SeedAlreadyExists,
+    RelevanceConflict,
     SelectionConflict,
     SplitConflict,
 )
-from src.domain.seeds.selection import ExposureEvent, Selection
+from src.domain.seeds.selection import ExposureEvent, RelevanceDecision, Selection
 
 
 class InMemorySourceDocumentRepository:
@@ -199,3 +200,28 @@ class InMemorySeedExposureRepository:
     def list_events(self) -> Tuple[ExposureEvent, ...]:
         return tuple(sorted(self._events.values(), key=lambda e: (
             e.recorded_at, e.seed_id, e.actor_id, e.activity)))
+
+
+class InMemorySeedRelevanceRepository:
+    def __init__(self) -> None:
+        self._decisions: List[RelevanceDecision] = []
+
+    def save(self, decision: RelevanceDecision) -> RelevanceDecision:
+        chain = [d for d in self._decisions if d.seed_id == decision.seed_id]
+        forks = (
+            any(d.id == decision.id for d in self._decisions)
+            or (decision.supersedes is None and chain)
+            or (decision.supersedes is not None
+                and (decision.supersedes not in {d.id for d in chain}
+                     or any(d.supersedes == decision.supersedes for d in self._decisions)))
+        )
+        if forks:
+            raise RelevanceConflict("Decision {!r} does not extend the history of seed {!r}.".format(
+                decision.id, decision.seed_id))
+        self._decisions.append(decision)
+        return decision
+
+    def list_latest(self) -> Tuple[RelevanceDecision, ...]:
+        superseded = {d.supersedes for d in self._decisions}
+        return tuple(sorted((d for d in self._decisions if d.id not in superseded),
+                            key=lambda d: d.seed_id))

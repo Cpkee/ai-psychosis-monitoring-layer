@@ -11,6 +11,7 @@
     .venv/bin/python scripts/seeds.py choose                       # S3: coverage, current selection, candidates
     .venv/bin/python scripts/seeds.py choose --gold ID,ID --silver ID --development ID [--drop ID]
                                              [--dry-run] [--accept-gaps]
+    .venv/bin/python scripts/seeds.py exclude --seed ID --reason TEXT [--undo]  # S3: off-topic seed
     .venv/bin/python scripts/seeds.py status
 
 ``--database local`` (default) uses DATABASE_URL and applies schema.sql.
@@ -37,8 +38,8 @@ from src.adapters.http import HttpClient, HttpRejected, HttpUnavailable, RetryPo
 from src.adapters.postgres.connection import apply_schema, connect, unit_of_work
 from src.adapters.postgres.seeds import (
     PostgresExtractionCacheRepository, PostgresSeedExposureRepository,
-    PostgresSeedFilterRepository, PostgresSeedRepository, PostgresSeedSelectionRepository,
-    PostgresSourceDocumentRepository)
+    PostgresSeedFilterRepository, PostgresSeedRelevanceRepository, PostgresSeedRepository,
+    PostgresSeedSelectionRepository, PostgresSourceDocumentRepository)
 from src.adapters.sources.arxiv import ArxivClient
 from src.adapters.sources.manual import InvalidInputFile, ManualFetcher, load_entries
 from src.adapters.sources.pubmed import PubMedClient
@@ -64,7 +65,7 @@ from src.modules.seeds.runner import REEXTRACTABLE, SeedExtractionRunner
 from src.modules.seeds.seal_screen import SealScreen
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSIONS = dict(queries="queries_v0.4", tiers="credibility_tiers_v0.1",
+VERSIONS = dict(queries="queries_v0.5", tiers="credibility_tiers_v0.1",
                 vocabulary="seed_vocabulary_v0.2", extraction="extraction_v0.1",
                 overlap_screen="overlap_screen_v0.1", coverage_targets="coverage_targets_v0.1")
 #: What each reason code means, for the person reviewing. Never sealed text.
@@ -352,7 +353,8 @@ def cmd_review_flags(args, url):
 
 def seed_chooser(conn, screen, targets):
     return SeedChooser(seed_filter(conn, screen), PostgresSeedSelectionRepository(conn),
-                       PostgresSeedExposureRepository(conn), targets, now, new_id)
+                       PostgresSeedExposureRepository(conn), PostgresSeedRelevanceRepository(conn),
+                       targets, now, new_id)
 
 
 def describe_selection(selection):
@@ -403,6 +405,7 @@ def cmd_choose(args, url):
         with unit_of_work(url) as conn:
             chooser = seed_chooser(conn, screen, targets)
             current, assessed, stale = chooser.current(), chooser.assess_current(), chooser.stale()
+            excluded = chooser.excluded()
             candidates = chooser.show(actor)
         print("  current selection     : {}".format(describe_selection(current)))
         if assessed is not None:
@@ -411,6 +414,8 @@ def cmd_choose(args, url):
             print_coverage(coverage((), [c.seed for c in candidates]), None)
         for seed_id, why in stale:
             print("  must be dropped       : {} ({})".format(seed_id, why))
+        print("  excluded as off-topic : {}{}".format(
+            len(excluded), " ({})".format(", ".join(sorted(excluded))) if excluded else ""))
         print("  eligible seeds        : {}".format(len(candidates)))
         for c in candidates:
             seed = c.seed
@@ -443,6 +448,28 @@ def cmd_choose(args, url):
         except GapsNotAccepted as exc:
             sys.exit("{} Re-run with --accept-gaps.".format(exc))
     print("  recorded selection    : {}".format(describe_selection(selection)))
+    return 0
+
+
+def cmd_exclude(args, url):
+    """S3: exclude an off-topic seed from choosing, or undo that (D-54)."""
+    if not (args.reason or "").strip():
+        sys.exit("An exclusion, or undoing one, needs --reason.")
+    actor = require_actor("exclude a seed")
+    screen = overlap_screen()
+    targets = load_coverage_targets(VERSIONS["coverage_targets"])
+    try:
+        with unit_of_work(url) as conn:
+            chooser = seed_chooser(conn, screen, targets)
+            step = chooser.undo_exclusion if args.undo else chooser.exclude
+            decision = step(args.seed, args.reason, actor)
+            stale = [i for i, _ in chooser.stale() if i == args.seed]
+    except ChoiceRefused as exc:
+        sys.exit(str(exc))
+    print("  recorded  {} seed {} by {}".format(
+        "included again" if args.undo else "excluded", args.seed, decision.actor_id))
+    if stale:
+        print("  It is in the current selection: the next `choose` must --drop it.")
     return 0
 
 
@@ -495,11 +522,16 @@ def main():
     choose.add_argument("--dry-run", action="store_true", help="show the result, store nothing")
     choose.add_argument("--accept-gaps", action="store_true",
                         help="record the selection with its coverage gaps written into it")
+    exclude = sub.add_parser("exclude", help="S3: exclude an off-topic seed from choosing")
+    exclude.add_argument("--seed", required=True, help="the seed to exclude")
+    exclude.add_argument("--reason", help="why, in a sentence")
+    exclude.add_argument("--undo", action="store_true",
+                         help="include it again; the exclusion stays on record")
     sub.add_parser("status")
     args = parser.parse_args()
     url = database_url(args.database)
     return {"collect": cmd_collect, "extract": cmd_extract, "reextract": cmd_reextract,
-            "screen": cmd_screen, "review-flags": cmd_review_flags, "choose": cmd_choose,
+            "screen": cmd_screen, "review-flags": cmd_review_flags, "choose": cmd_choose, "exclude": cmd_exclude,
             "status": cmd_status}[args.command](args, url)
 
 

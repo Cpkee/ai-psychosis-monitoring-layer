@@ -10,8 +10,11 @@ current one, adds and drops seeds, and is refused while:
 - the result misses a coverage target, until the chooser accepts the gaps.
   Accepted gaps are written into the selection (D-35).
 
-Showing a seed's content to a person, or letting them choose it, records an
-exposure (D-34). The caller owns the transaction.
+A person can also exclude an off-topic seed, which removes it from the
+candidates until the exclusion is undone (D-54).
+
+Showing a seed's content to a person, letting them choose it, or letting them
+exclude it records an exposure (D-34). The caller owns the transaction.
 """
 
 from __future__ import annotations
@@ -21,17 +24,24 @@ import dataclasses
 from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from src.domain.seeds.records import Seed
-from src.domain.seeds.repository import SeedExposureRepository, SeedSelectionRepository
+from src.domain.seeds.repository import (
+    SeedExposureRepository,
+    SeedRelevanceRepository,
+    SeedSelectionRepository,
+)
 from src.domain.seeds.selection import (
     CHOOSE,
     DEVELOPMENT,
+    EXCLUDE,
     GOLD,
     HARM_DESCRIBED,
+    INCLUDE,
     NO_HARM_DESCRIBED,
     NO_THEME,
     SILVER,
     CoverageCell,
     ExposureEvent,
+    RelevanceDecision,
     Selection,
     SelectionEntry,
 )
@@ -142,6 +152,7 @@ class SeedChooser:
         seed_filter: SeedFilter,
         selections: SeedSelectionRepository,
         exposure: SeedExposureRepository,
+        relevance: SeedRelevanceRepository,
         targets: CoverageTargets,
         clock: Callable[[], str],
         new_id: Callable[[], str],
@@ -149,6 +160,7 @@ class SeedChooser:
         self._filter = seed_filter
         self._selections = selections
         self._exposure = exposure
+        self._relevance = relevance
         self._targets = targets
         self._clock = clock
         self._new_id = new_id
@@ -166,7 +178,7 @@ class SeedChooser:
             seen[event.seed_id].add(event.actor_id)
         return tuple(
             Candidate(s, splits.get(s.seed.id), s.seed.id in chosen, tuple(sorted(seen[s.seed.id])))
-            for s in self._filter.seeds() if s.eligible)
+            for s in self._eligible())
 
     def stale(self) -> Tuple[Tuple[str, str], ...]:
         """(seed id, why) for each seed in the current selection that can no
@@ -174,12 +186,32 @@ class SeedChooser:
         current = self.current()
         if current is None:
             return ()
-        screened = self._filter.seeds()
-        statuses = {s.seed.id: s.status for s in screened}
-        eligible = {s.seed.id for s in screened if s.eligible}
+        statuses = {s.seed.id: s.status for s in self._filter.seeds()}
+        statuses.update({i: "excluded as off-topic" for i in self.excluded()})
+        eligible = {s.seed.id for s in self._eligible()}
         return tuple(
             (e.seed_id, statuses.get(e.seed_id, "superseded by a re-extraction"))
             for e in current.entries if e.seed_id not in eligible)
+
+    def excluded(self) -> Dict[str, RelevanceDecision]:
+        """Seed id → the exclusion in force, for every seed excluded as off-topic."""
+        return {d.seed_id: d for d in self._relevance.list_latest() if d.decision == EXCLUDE}
+
+    def exclude(self, seed_id: str, reason: str, actor_id: str) -> RelevanceDecision:
+        """Remove an off-topic seed from choosing. A seed already in the
+        selection must then be dropped explicitly (see :meth:`stale`)."""
+        self._require_current(seed_id)
+        latest = {d.seed_id: d for d in self._relevance.list_latest()}.get(seed_id)
+        if latest is not None and latest.decision == EXCLUDE:
+            raise ChoiceRefused("Seed {!r} is already excluded.".format(seed_id))
+        return self._decide(seed_id, EXCLUDE, reason, actor_id, latest)
+
+    def undo_exclusion(self, seed_id: str, reason: str, actor_id: str) -> RelevanceDecision:
+        self._require_current(seed_id)
+        latest = self.excluded().get(seed_id)
+        if latest is None:
+            raise ChoiceRefused("Seed {!r} is not excluded.".format(seed_id))
+        return self._decide(seed_id, INCLUDE, reason, actor_id, latest)
 
     def show(self, actor_id: str) -> Tuple[Candidate, ...]:
         """The candidates, recording that ``actor_id`` has now seen each one."""
@@ -257,8 +289,27 @@ class SeedChooser:
             pattern_count=sum(1 for seed, _ in chosen if seed.account_kind == "pattern"),
             previous=previous)
 
+    def _eligible(self) -> Tuple[ScreenedSeed, ...]:
+        """Current seeds S2 made eligible, less those excluded as off-topic."""
+        excluded = self.excluded()
+        return tuple(s for s in self._filter.seeds() if s.eligible and s.seed.id not in excluded)
+
     def _eligible_ids(self) -> set:
-        return {s.seed.id for s in self._filter.seeds() if s.eligible}
+        return {s.seed.id for s in self._eligible()}
+
+    def _require_current(self, seed_id: str) -> None:
+        if seed_id not in {s.seed.id for s in self._filter.seeds()}:
+            raise ChoiceRefused("{!r} is not a current seed of an extracted document.".format(
+                seed_id))
+
+    def _decide(self, seed_id: str, decision: str, reason: str, actor_id: str,
+                latest: Optional[RelevanceDecision]) -> RelevanceDecision:
+        saved = self._relevance.save(RelevanceDecision(
+            id=self._new_id(), seed_id=seed_id, decision=decision, reason=reason,
+            actor_id=actor_id, recorded_at=self._clock(),
+            supersedes=latest.id if latest is not None else None))
+        self._expose(actor_id, (seed_id,))
+        return saved
 
     def _expose(self, actor_id: str, seed_ids: Iterable[str]) -> None:
         for seed_id in seed_ids:

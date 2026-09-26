@@ -39,17 +39,21 @@ from src.domain.seeds.repository import (
     OverlapCheckNotFound,
     ReviewConflict,
     SeedAlreadyExists,
+    RelevanceConflict,
     SelectionConflict,
     SplitConflict,
 )
 from src.domain.seeds.selection import (
     CHOOSE,
     DEVELOPMENT,
+    EXCLUDE,
     FLAG_REVIEW,
     GOLD,
+    INCLUDE,
     SILVER,
     CoverageCell,
     ExposureEvent,
+    RelevanceDecision,
     Selection,
     SelectionEntry,
 )
@@ -472,3 +476,58 @@ class SeedExposureRepositoryContract:
         also = repo.record(ExposureEvent("example-seed-1", "example-actor", FLAG_REVIEW,
                                          "2026-01-03T00:00:00Z"))
         self.assertEqual(repo.list_events(), (earlier, later, also))
+
+
+def make_decision(decision_id="example-decision-1", seed_id="example-seed-1", decision=EXCLUDE,
+                  supersedes=None):
+    return RelevanceDecision(decision_id, seed_id, decision, "Example reason.", "example-actor",
+                             "2026-01-01T00:00:00Z", supersedes)
+
+
+class SeedRelevanceRepositoryContract:
+    """The store needs seeds ``example-seed-1`` and ``example-seed-2``."""
+
+    def repository(self):
+        raise NotImplementedError
+
+    def test_an_exclusion_is_the_latest_decision_for_its_seed(self):
+        repo = self.repository()
+        self.assertEqual(repo.list_latest(), ())
+        decision = repo.save(make_decision())
+        self.assertEqual(repo.list_latest(), (decision,))
+
+    def test_undoing_supersedes_and_the_history_stays(self):
+        repo = self.repository()
+        repo.save(make_decision())
+        undone = repo.save(make_decision("example-decision-2", decision=INCLUDE,
+                                         supersedes="example-decision-1"))
+        again = repo.save(make_decision("example-decision-3", supersedes="example-decision-2"))
+        self.assertEqual(repo.list_latest(), (again,))
+        self.assertEqual(undone.supersedes, "example-decision-1")
+
+    def test_latest_decisions_are_listed_by_seed(self):
+        repo = self.repository()
+        second = repo.save(make_decision("example-decision-b", seed_id="example-seed-2"))
+        first = repo.save(make_decision("example-decision-a"))
+        self.assertEqual(repo.list_latest(), (first, second))
+
+    def test_the_history_cannot_fork(self):
+        repo = self.repository()
+        repo.save(make_decision())
+        repo.save(make_decision("example-decision-2", seed_id="example-seed-2"))
+        for fork in (make_decision("example-decision-3"),                  # a second first decision
+                     make_decision("example-decision-4", seed_id="example-seed-2",
+                                   decision=INCLUDE, supersedes="example-decision-1"),
+                     make_decision("example-decision-1", seed_id="example-seed-2",
+                                   decision=INCLUDE, supersedes="example-decision-2")):
+            with self.subTest(decision=fork.id), self.assertRaises(RelevanceConflict):
+                repo.save(fork)
+        repo.save(make_decision("example-decision-5", decision=INCLUDE,
+                                supersedes="example-decision-1"))
+        with self.assertRaises(RelevanceConflict):
+            repo.save(make_decision("example-decision-6", decision=INCLUDE,
+                                    supersedes="example-decision-1"))
+
+    def test_an_inclusion_only_ever_undoes_an_exclusion(self):
+        with self.assertRaises(ValueError):
+            make_decision(decision=INCLUDE)

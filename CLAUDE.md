@@ -12,7 +12,7 @@ A research prototype that monitors conversations with an AI companion, tracks ho
 2. **[`README.md`](README.md)** — project overview. Authoritative for the DCS/HES/SIS/SGQ definitions (section "Companion-response metrics"), the three theme families, the companion (section "The companion") and severity levels.
 3. **`docs/foundations/`** — analytical taxonomy, rubric, data contracts, build plan, open decisions. **Tracked in git**, despite the original intention to ignore it, and the repository is **public**: everything written here is published on push.
 
-The build plan and every implementation decision live in `docs/foundations/IMPLEMENTATION_FOUNDATION.md` — §8 build order, §10 decisions **D-1…D-53**. Read §10 before changing anything structural; those decisions were argued once already.
+The build plan and every implementation decision live in `docs/foundations/IMPLEMENTATION_FOUNDATION.md` — §8 build order, §10 decisions **D-1…D-54**. Read §10 before changing anything structural; those decisions were argued once already.
 
 **Known conflict, pending approval:** `architecture.md` and `PROJECT_SCOPE.md` still describe a client companion API, three companion conditions and real users as out of scope. D-46 and D-47 supersede those passages; the replacement wording is in `docs/foundations/DRAFT_COMPANION_SCOPE_CHANGE.md`, awaiting approval. Everywhere else, `architecture.md` still wins.
 
@@ -74,7 +74,7 @@ TEST_DATABASE_URL=postgresql://apml:apml@localhost:5433/apml_test \
   .venv/bin/python -m unittest discover -s tests -t .
 ```
 
-Without `TEST_DATABASE_URL` the PostgreSQL tests skip and everything else runs. **529 tests**; 106 skip without a database (105 PostgreSQL, plus the opt-in live extractor test: `APML_LIVE_TESTS=1`).
+Without `TEST_DATABASE_URL` the PostgreSQL tests skip and everything else runs. **543 tests**; 111 skip without a database (110 PostgreSQL, plus the opt-in live extractor test: `APML_LIVE_TESTS=1`).
 
 **Seed pipeline runbook** (`scripts/seeds.py`, against `apml`):
 
@@ -84,8 +84,15 @@ Without `TEST_DATABASE_URL` the PostgreSQL tests skip and everything else runs. 
 .venv/bin/python scripts/seeds.py screen                # S2: overlap screen
 .venv/bin/python scripts/seeds.py review-flags          # S2: decide flagged seeds
 .venv/bin/python scripts/seeds.py choose                # S3: coverage and candidates
+.venv/bin/python scripts/seeds.py exclude --seed ID --reason "..."   # S3: off-topic seed
 .venv/bin/python scripts/seeds.py status
 ```
+
+(Interactive zsh does not treat `#` as a comment unless `setopt interactivecomments` is on: paste the commands without the comments.)
+
+**Where results live.** Everything the pipeline produces is in the local PostgreSQL database `apml`, inside the Docker volume `ai-psychosis-monitoring-layer_apml-pgdata`: searches (`seed_query_log`), snapshots with their text (`source_documents`), raw model replies (`extraction_cache`), `seeds`, overlap checks and flag reviews, relevance decisions, selections and splits, and the exposure log. None of it is in git, and there is no shared database or release bundle yet, so **the volume is the only copy**. Back it up with `docker exec apml-postgres pg_dump -U apml -d apml -Fc > apml-$(date +%F).dump` (outside the repository; it contains article text).
+
+`review-flags` and `choose` need `APML_ACTOR_ID` in `.env`. **A split is permanent** and viewing is recorded as exposure, so try `choose` on a copy first: `docker exec apml-postgres psql -U apml -d postgres -c "CREATE DATABASE apml_trial_test TEMPLATE apml"`, then point `DATABASE_URL` at it and drop it afterwards.
 
 **Two local databases (D-41).** `apml_test` (`TEST_DATABASE_URL`) is for tests and the walkthrough, which truncate tables; anything that truncates refuses a database not named `*_test`. `apml` (`DATABASE_URL`) holds working data for `scripts/seeds.py`: snapshots, cached extractor replies and seeds, which cost real model calls to reproduce. **Never point tests at `apml`.**
 
@@ -158,7 +165,7 @@ domain records → interface with declared error modes → in-memory adapter →
 | # | Increment | State | Blocked by |
 |---|---|---|---|
 | 6b | `LLMJudgeAdapter`, judge config registry, generated JSON schema, opt-in live test | **Blocked** | [OD-013](docs/foundations/OPEN_DECISIONS.md) — see `docs/foundations/JUDGE_DECISIONS.md` |
-| S4 | **⬅ next increment: Scenario and persona.** Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-53 | Unblocked once the plan reflects D-46 (next step 2) | — |
+| S4 | **⬅ next increment: Scenario and persona.** Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-54 | Unblocked once the plan reflects D-46 (next step 2) | — |
 | C1 | **Companion v0.1**: pinned model, persona prompt with non-sycophancy instructions. Not yet in any plan | Needed before S5 | Model choice; family separation from simulated user and judge (D-30) |
 | C2–C4 | Companion–monitor contract (C2), Mem0 memory (C3), Jev pre-screen and redirection (C4). Blueprint: `docs/foundations/COMPANION_INTEGRATION_BLUEPRINT.md` | After C1 | OD-015 (C2); OD-028 (C3); OD-029 and clinical sign-off (C4) |
 | S5–S8 | Generate → Review → Label → Adjudicate (S8, D-50) | After S4 and C1 | S5: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S7–S8 running: OD-014, OD-005. Shared writes: OD-024, OD-026 |
@@ -223,7 +230,7 @@ OD-014 and OD-005 matter most. The pilot produces the human-adjudicated labels; 
 
 - In-memory adapters cannot express transactional behaviour. Anything depending on rollback must be tested against PostgreSQL.
 - No real judge. `DeterministicFakeJudgeAdapter` only — every score it returns is canned, so nothing produced so far says anything about a model's behaviour.
-- Seeds carry `account_kind` (`individual` / `pattern`, D-44); the extractor's own wording may not use diagnostic terms (list in `seed_vocabulary_v0.2.json`). Prompt `extraction_prompt_v0.6` admits only in-scope accounts (D-51) and lists the refused words, injected from the vocabulary, including in reported speech (D-52, D-53); searches are `queries_v0.4`, with two A1 searches. **The corpus is deliberately mixed** (most documents on v0.5): do not run `reextract --stale` unless you mean to regenerate every seed, which reshuffles them (D-53). After changing the prompt or model, run `scripts/seeds.py reextract --stale` (`--dry-run` first). Re-extraction is append-only: old seeds stay stored, the document records which extraction is current (D-45). Never delete seeds by hand.
+- Seeds carry `account_kind` (`individual` / `pattern`, D-44); the extractor's own wording may not use diagnostic terms (list in `seed_vocabulary_v0.2.json`). Prompt `extraction_prompt_v0.6` admits only in-scope accounts (D-51) and lists the refused words, injected from the vocabulary, including in reported speech (D-52, D-53); searches are `queries_v0.5` (the A1 searches were withdrawn: A1 comes from journalism and case reports added by hand, D-54). Off-topic seeds are removed from choosing with `seeds.py exclude` (D-54). **The corpus is deliberately mixed** (most documents on v0.5): do not run `reextract --stale` unless you mean to regenerate every seed, which reshuffles them (D-53). After changing the prompt or model, run `scripts/seeds.py reextract --stale` (`--dry-run` first). Re-extraction is append-only: old seeds stay stored, the document records which extraction is current (D-45). Never delete seeds by hand.
 - Extraction providers: `gemini` (`gemini-3.6-flash`; the free tier allows **20 requests/day/model** and was congested, so it is unusable for batches), `openai` (**active**, D-42: `gpt-5.4-mini-2026-03-17`, temperature 0, verified 2026-09-23), `ollama`. `gemini-2.5-flash` is listed but refuses new users with a 404. The model version is part of the cache key.
 - Seed collection reads abstracts only; PMC full text and PDFs are absent (D-40). Shared-DB migrations wait until the shared database is chosen.
 - S2 Filter (D-48): run `scripts/seeds.py screen` after any extraction; flagged seeds need `review-flags --seed ID --keep|--exclude --reason ...` with `APML_ACTOR_ID` set in `.env`. Changing `overlap_screen_v0.1.json` re-screens everything and flags need fresh decisions. Decisions go to whichever database `--database` selects until the shared one exists. **A blocked seed's text stays in local `seeds` and `extraction_cache`: S7 export must exclude blocked seeds and their cache entries.**

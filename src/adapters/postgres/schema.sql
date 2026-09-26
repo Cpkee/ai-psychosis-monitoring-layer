@@ -408,3 +408,27 @@ CREATE TABLE IF NOT EXISTS seed_exposure (
     CONSTRAINT exposure_activity_valid CHECK (activity IN ('flag_review', 'choose')),
     CONSTRAINT exposure_has_actor CHECK (btrim(actor_id) <> '')
 );
+
+-- S3 relevance decisions (D-54): a person excludes an off-topic seed from
+-- choosing, or undoes that. One unbroken chain per seed, as for flag reviews;
+-- an inclusion only ever undoes an exclusion.
+CREATE TABLE IF NOT EXISTS seed_relevance_decisions (
+    id          TEXT PRIMARY KEY,
+    seed_id     TEXT NOT NULL REFERENCES seeds (id),
+    decision    TEXT NOT NULL,
+    reason      TEXT NOT NULL,
+    actor_id    TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    supersedes  TEXT UNIQUE,
+
+    CONSTRAINT relevance_decision_valid CHECK (decision IN ('exclude', 'include')),
+    CONSTRAINT relevance_include_only_undoes CHECK (decision = 'exclude' OR supersedes IS NOT NULL),
+    CONSTRAINT relevance_has_reason CHECK (btrim(reason) <> ''),
+    CONSTRAINT relevance_has_actor CHECK (btrim(actor_id) <> ''),
+    CONSTRAINT relevance_id_per_seed UNIQUE (id, seed_id),
+    CONSTRAINT relevance_supersedes_same_seed FOREIGN KEY (supersedes, seed_id)
+        REFERENCES seed_relevance_decisions (id, seed_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS relevance_one_first_decision
+    ON seed_relevance_decisions (seed_id) WHERE supersedes IS NULL;

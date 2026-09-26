@@ -17,6 +17,7 @@ import unittest
 from src.adapters.memory.seeds import (
     InMemorySeedExposureRepository,
     InMemorySeedFilterRepository,
+    InMemorySeedRelevanceRepository,
     InMemorySeedRepository,
     InMemorySeedSelectionRepository,
     InMemorySourceDocumentRepository,
@@ -65,6 +66,7 @@ class ChooseTest(unittest.TestCase):
         self.checks = InMemorySeedFilterRepository()
         self.selections = InMemorySeedSelectionRepository()
         self.exposure = InMemorySeedExposureRepository()
+        self.relevance = InMemorySeedRelevanceRepository()
         self.ids = ("example-id-{}".format(n) for n in itertools.count(1))
         self.document = self.documents.save(make_document(
             status=EXTRACTED, processed_prompt_version=PROMPT, processed_model_version=MODEL))
@@ -88,7 +90,7 @@ class ChooseTest(unittest.TestCase):
         return next(self.ids)
 
     def chooser(self, targets=NO_TARGETS):
-        return SeedChooser(self.filter, self.selections, self.exposure, targets,
+        return SeedChooser(self.filter, self.selections, self.exposure, self.relevance, targets,
                            self.clock, self.new_id)
 
     def choose(self, assign, drop=(), targets=NO_TARGETS, accept_gaps=False):
@@ -163,6 +165,42 @@ class ChooseTest(unittest.TestCase):
                              ({}, ("example-a1",))):              # nothing left
             with self.subTest(assign=assign, drop=drop), self.assertRaises(ChoiceRefused):
                 self.chooser().propose(assign, drop)
+
+    def test_an_excluded_seed_leaves_the_candidates_until_the_exclusion_is_undone(self):
+        chooser = self.chooser()
+        chooser.exclude("example-a3", "Example: no qualifying account.", "example-actor")
+        self.assertNotIn("example-a3", {c.seed.id for c in chooser.candidates()})
+        self.assertEqual(set(chooser.excluded()), {"example-a3"})
+        with self.assertRaises(ChoiceRefused):
+            chooser.propose({"example-a3": GOLD}, ())
+        undone = chooser.undo_exclusion("example-a3", "Example: on reflection, in scope.",
+                                        "example-actor")
+        self.assertIsNotNone(undone.supersedes)
+        self.assertIn("example-a3", {c.seed.id for c in chooser.candidates()})
+
+    def test_excluding_a_chosen_seed_means_the_next_selection_must_drop_it(self):
+        self.choose({"example-a1": GOLD, "example-a3": SILVER})
+        self.chooser().exclude("example-a3", "Example: off-topic.", "example-actor")
+        self.assertEqual(self.chooser().stale(), (("example-a3", "excluded as off-topic"),))
+        with self.assertRaises(ChoiceRefused):
+            self.chooser().propose({"example-a2": DEVELOPMENT}, ())
+        after = self.choose({"example-a2": DEVELOPMENT}, drop=("example-a3",))
+        self.assertEqual({e.seed_id for e in after.entries}, {"example-a1", "example-a2"})
+
+    def test_exclusion_requests_that_make_no_sense_are_refused(self):
+        chooser = self.chooser()
+        with self.assertRaises(ChoiceRefused):
+            chooser.undo_exclusion("example-a1", "Example.", "example-actor")   # not excluded
+        chooser.exclude("example-a1", "Example.", "example-actor")
+        with self.assertRaises(ChoiceRefused):
+            chooser.exclude("example-a1", "Example.", "example-actor")          # already
+        with self.assertRaises(ChoiceRefused):
+            chooser.exclude("example-missing", "Example.", "example-actor")
+
+    def test_excluding_a_seed_is_recorded_as_exposure(self):
+        self.chooser().exclude("example-a2", "Example.", "example-excluder")
+        self.assertIn(("example-a2", "example-excluder"),
+                      {(e.seed_id, e.actor_id) for e in self.exposure.list_events()})
 
     def test_seeing_or_choosing_a_seed_is_recorded(self):
         chooser = self.chooser()

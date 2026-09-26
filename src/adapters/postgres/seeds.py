@@ -31,10 +31,12 @@ from src.domain.seeds.repository import (
     OverlapCheckNotFound,
     ReviewConflict,
     SeedAlreadyExists,
+    RelevanceConflict,
     SelectionConflict,
     SplitConflict,
 )
-from src.domain.seeds.selection import CoverageCell, ExposureEvent, Selection, SelectionEntry
+from src.domain.seeds.selection import (
+    CoverageCell, ExposureEvent, RelevanceDecision, Selection, SelectionEntry)
 
 _QUERY_COLUMNS = ("id", "source", "query_id", "query_text", "query_config_version",
                   "executed_at", "result_ids")
@@ -45,6 +47,7 @@ _CHECK_COLUMNS = tuple(f.name for f in dataclasses.fields(OverlapCheck))
 _REVIEW_COLUMNS = tuple(f.name for f in dataclasses.fields(FlagReview))
 _SELECTION_COLUMNS = tuple(f.name for f in dataclasses.fields(Selection) if f.name != "entries")
 _EXPOSURE_COLUMNS = tuple(f.name for f in dataclasses.fields(ExposureEvent))
+_RELEVANCE_COLUMNS = tuple(f.name for f in dataclasses.fields(RelevanceDecision))
 
 
 def _insert(table: str, columns) -> str:
@@ -315,3 +318,25 @@ class PostgresSeedExposureRepository:
             "SELECT {} FROM seed_exposure ORDER BY recorded_at, seed_id, actor_id, "
             "activity".format(", ".join(_EXPOSURE_COLUMNS))).fetchall()
         return tuple(ExposureEvent(*row) for row in rows)
+
+
+class PostgresSeedRelevanceRepository:
+    def __init__(self, connection: psycopg.Connection):
+        self._connection = connection
+
+    def save(self, decision: RelevanceDecision) -> RelevanceDecision:
+        try:
+            with self._connection.transaction():
+                self._connection.execute(_insert("seed_relevance_decisions", _RELEVANCE_COLUMNS),
+                                         [getattr(decision, c) for c in _RELEVANCE_COLUMNS])
+        except (psycopg.errors.UniqueViolation, psycopg.errors.ForeignKeyViolation):
+            raise RelevanceConflict("Decision {!r} does not extend the history of seed {!r}.".format(
+                decision.id, decision.seed_id))
+        return decision
+
+    def list_latest(self) -> Tuple[RelevanceDecision, ...]:
+        rows = self._connection.execute(
+            "SELECT {} FROM seed_relevance_decisions r WHERE NOT EXISTS "
+            "(SELECT 1 FROM seed_relevance_decisions s WHERE s.supersedes = r.id) "
+            "ORDER BY r.seed_id".format(", ".join("r." + c for c in _RELEVANCE_COLUMNS))).fetchall()
+        return tuple(RelevanceDecision(*row) for row in rows)
