@@ -9,10 +9,12 @@ A research prototype that monitors conversations with an AI companion, tracks ho
 ## Authority order
 
 1. **[`architecture.md`](architecture.md)** — implementation source of truth. Module seams, interfaces, invariants, data records (§7.2), delivery phases (§18), acceptance criteria (§19). Where anything conflicts with it, it wins.
-2. **[`README.md`](README.md)** — project overview. Authoritative for the DCS/HES/SIS/SGQ definitions (section "Companion-response metrics"), the three theme families, companion conditions and severity levels.
-3. **`docs/foundations/`** — analytical taxonomy, rubric, data contracts, build plan, open decisions. **Gitignored by project choice**, so it exists locally but not in a fresh clone.
+2. **[`README.md`](README.md)** — project overview. Authoritative for the DCS/HES/SIS/SGQ definitions (section "Companion-response metrics"), the three theme families, the companion (section "The companion") and severity levels.
+3. **`docs/foundations/`** — analytical taxonomy, rubric, data contracts, build plan, open decisions. **Tracked in git**, despite the original intention to ignore it, and the repository is **public**: everything written here is published on push.
 
-The build plan and every implementation decision live in `docs/foundations/IMPLEMENTATION_FOUNDATION.md` — §8 build order, §10 decisions **D-1…D-22**. Read §10 before changing anything structural; those decisions were argued once already.
+The build plan and every implementation decision live in `docs/foundations/IMPLEMENTATION_FOUNDATION.md` — §8 build order, §10 decisions **D-1…D-50**. Read §10 before changing anything structural; those decisions were argued once already.
+
+**Known conflict, pending approval:** `architecture.md` and `PROJECT_SCOPE.md` still describe a client companion API, three companion conditions and real users as out of scope. D-46 and D-47 supersede those passages; the replacement wording is in `docs/foundations/DRAFT_COMPANION_SCOPE_CHANGE.md`, awaiting approval. Everywhere else, `architecture.md` still wins.
 
 ---
 
@@ -46,7 +48,14 @@ The two `ai_sweetheart` cases have inconsistent labels. **That inconsistency mus
 - The 0–3 scale is **provisional, not approved**. Never hard-code bounds; valid values live in `config/analytical_versions.json` keyed by `scale_version`.
 - **`null` is never `0`.** "Could not tell" and "absent" are different findings. Enforced by the record, a SQL `CHECK`, and a round-trip test.
 - A score above zero **must** cite supporting turn ids within the assessed window.
-- Judge output is a **derived assessment**, never ground truth. Human-adjudicated labels are the reference, and none exist yet.
+- Judge output is a **derived assessment**, never ground truth. Human-adjudicated labels are the reference, and none exist yet. Never tune anything against gold-split labels; they are for testing only.
+
+### The companion and real users
+
+- **One companion, built by this team for the client (D-46).** There is no client companion API, and the grounded and sycophantic reference conditions are dropped. The companion acts; the monitor observes and sends signals; **no alert causes an action**.
+- **No real users yet (D-47).** A live demo with real users is intended, but not permitted until the preconditions in [OD-030](docs/foundations/OPEN_DECISIONS.md) are approved. No real-user conversation may enter the system before a data source for it is registered and the Dataset Use Gate permits it.
+- Companion memory (Mem0 or a structured table) and redirection flows (NeMo, a Jev pre-screen) are undecided companion features ([OD-028](docs/foundations/OPEN_DECISIONS.md), [OD-029](docs/foundations/OPEN_DECISIONS.md)). The monitor's own cross-session history, if built, is a PostgreSQL query over cited findings, never Mem0.
+- **How they will plug in** is specified, without code, in `docs/foundations/COMPANION_INTEGRATION_BLUEPRINT.md`: the companion–monitor contract (C2), Mem0 memory (C3) and the Jev pre-screen (C4), with interfaces, records, rules, tests to write first, and what unblocks each. Hand it to whoever implements them; **no skeletal code** before each increment is unblocked.
 
 ---
 
@@ -66,6 +75,17 @@ TEST_DATABASE_URL=postgresql://apml:apml@localhost:5433/apml_test \
 ```
 
 Without `TEST_DATABASE_URL` the PostgreSQL tests skip and everything else runs. **527 tests**; 106 skip without a database (105 PostgreSQL, plus the opt-in live extractor test: `APML_LIVE_TESTS=1`).
+
+**Seed pipeline runbook** (`scripts/seeds.py`, against `apml`):
+
+```bash
+.venv/bin/python scripts/seeds.py collect [--manual seed_inputs/inputs.json]  # S1: sources
+.venv/bin/python scripts/seeds.py extract --limit 15   # S1: paid model calls, cached
+.venv/bin/python scripts/seeds.py screen                # S2: overlap screen
+.venv/bin/python scripts/seeds.py review-flags          # S2: decide flagged seeds
+.venv/bin/python scripts/seeds.py choose                # S3: coverage and candidates
+.venv/bin/python scripts/seeds.py status
+```
 
 **Two local databases (D-41).** `apml_test` (`TEST_DATABASE_URL`) is for tests and the walkthrough, which truncate tables; anything that truncates refuses a database not named `*_test`. `apml` (`DATABASE_URL`) holds working data for `scripts/seeds.py`: snapshots, cached extractor replies and seeds, which cost real model calls to reproduce. **Never point tests at `apml`.**
 
@@ -120,16 +140,28 @@ domain records → interface with declared error modes → in-memory adapter →
 
 **What works end to end today:** a synthetic conversation is authorised at the gate, ingested with full metadata, scored per exchange by the fake judge, validated, stored with complete provenance, its trajectory derived across turns, and a versioned rule raises an alert citing its scores, trajectory, evidence turns and rule version — or it fails visibly with the cause distinguishable. `scripts/walkthrough.py` runs the whole path.
 
+**Seed pipeline today (S1–S3):** published accounts are collected, screened against the sealed benchmark, extracted into seeds, screened again, and chosen into permanent splits, with exposure recorded. Each stage is tested; the chain has **not yet been run end to end on fresh material**, and the working database holds only 3 seeds.
+
 **§19 acceptance criteria met:** 1, 2, 3, 4, 5, 6, 7, 8, 10 (trivially: Redis is used nowhere), 12.
 
 ---
+
+## Next steps
+
+1. **End-to-end run of S1–S3 on fresh material**, which also grows the corpus (3 seeds cannot meet any coverage target). Needs `APML_ACTOR_ID` in `.env` and a go-ahead for paid extraction; cap the first run at about 15 documents. Run `collect`, `extract` and `screen` on `apml`; trial `review-flags` and `choose` on a `*_test` copy, because splits are permanent. Run `scripts/walkthrough.py` too.
+2. **Bring the plan in line with D-46 before S4.** Approve `DRAFT_COMPANION_SCOPE_CHANGE.md`; update `SEED_PIPELINE_PLAN.md` §3.4 and the S4/S5 rows (a scenario names a companion *configuration*, and S5 generates against the one companion); add a **companion v0.1** increment (pinned model, persona prompt with non-sycophancy instructions), which S5 needs.
+3. **S4 Scenario and persona.**
+4. **In parallel, not engineering:** approve OD-014 (now including the terms for sending packets to an external clinician) and OD-005 (arrangement proposed). They still block the annotation pilot, the only route to reference labels.
 
 ## To do
 
 | # | Increment | State | Blocked by |
 |---|---|---|---|
 | 6b | `LLMJudgeAdapter`, judge config registry, generated JSON schema, opt-in live test | **Blocked** | [OD-013](docs/foundations/OPEN_DECISIONS.md) — see `docs/foundations/JUDGE_DECISIONS.md` |
-| S4–S8 | **⬅ next: S4 Scenario and persona.** Seed pipeline: Scenario and persona → Generate → Review → Label → Adjudicate (S8, D-50). Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-50. S4/S5 predate D-46 (one in-house companion) and need updating before S5 | Unblocked | S5 generation: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S1 shared writes: OD-024, OD-026 |
+| S4 | **⬅ next increment: Scenario and persona.** Plan: `docs/foundations/SEED_PIPELINE_PLAN.md`, decisions D-23…D-50 | Unblocked once the plan reflects D-46 (next step 2) | — |
+| C1 | **Companion v0.1**: pinned model, persona prompt with non-sycophancy instructions. Not yet in any plan | Needed before S5 | Model choice; family separation from simulated user and judge (D-30) |
+| C2–C4 | Companion–monitor contract (C2), Mem0 memory (C3), Jev pre-screen and redirection (C4). Blueprint: `docs/foundations/COMPANION_INTEGRATION_BLUEPRINT.md` | After C1 | OD-015 (C2); OD-028 (C3); OD-029 and clinical sign-off (C4) |
+| S5–S8 | Generate → Review → Label → Adjudicate (S8, D-50) | After S4 and C1 | S5: [OD-022](docs/foundations/OPEN_DECISIONS.md) simulated-user pilot. S7–S8 running: OD-014, OD-005. Shared writes: OD-024, OD-026 |
 | 8 | Audit trace, Review Query, **synthetic fixtures** | After 7 | — |
 | 9 | FastAPI ingestion, minimal reviewer view | After 8 | [OD-009](docs/foundations/OPEN_DECISIONS.md) dashboard choice |
 | 10 | Reprocessing lineage | After 9 | — |
@@ -155,10 +187,13 @@ domain records → interface with declared error modes → in-memory adapter →
 | Decision | Blocks | Status |
 |---|---|---|
 | Judge model, sampling, confidence, judge/companion family independence | Increment 6b | Brief ready: `docs/foundations/JUDGE_DECISIONS.md` |
-| [OD-014](docs/foundations/OPEN_DECISIONS.md) sensitive-content policy + **named escalation owner** | The annotation pilot | Draft ready for approval |
+| [OD-014](docs/foundations/OPEN_DECISIONS.md) sensitive-content policy + **named escalation owner**, and terms for sending packets to an external clinician | The annotation pilot; any packet leaving the team | Draft ready for approval |
 | [OD-005](docs/foundations/OPEN_DECISIONS.md) annotator qualifications | The annotation pilot | Arrangement proposed 2026-09-25: an external clinician sets the calibration key and adjudicates; groupmates annotate blind; the LLM is tested, never a label source. Awaiting approval |
 
-The last two matter most. The pilot produces the human-adjudicated labels; without labels no rubric can be validated; without a validated rubric **no evaluation figure may be reported**. It is the longest pole and it is blocked on two approvals, not on engineering.
+| `DRAFT_COMPANION_SCOPE_CHANGE.md` — `architecture.md` and `PROJECT_SCOPE.md` wording for D-46/D-47 | Clearing the known conflict; S4/S5 plan update | Draft ready for approval |
+| [OD-030](docs/foundations/OPEN_DECISIONS.md) preconditions for a live demo with real users | Any real user | Seven preconditions listed; none in place |
+
+OD-014 and OD-005 matter most. The pilot produces the human-adjudicated labels; without labels no rubric can be validated; without a validated rubric **no evaluation figure may be reported**. It is the longest pole and it is blocked on two approvals, not on engineering.
 
 **One finding that needs a decision, not just a note:** current Claude models reject `temperature`/`top_p`/`top_k` with a 400, so [`PROJECT_SCOPE.md`](docs/foundations/PROJECT_SCOPE.md) **NFR-1 ("any stored score can be re-derived") cannot be met as written** and must be amended. See `JUDGE_DECISIONS.md` §2.
 
@@ -170,7 +205,7 @@ The last two matter most. The pilot produces the human-adjudicated labels; witho
 
 - Turns are shown to the model **by number**; the parser maps back to `turn_id`. Models do not reliably echo opaque ids.
 - The prompt carries **per-signal definitions, score anchors and exclusion criteria** — not a generic 0–3 ladder. A generic ladder cannot express that `harm_intent` 3 needs a specific method, time or location, which is what the alert rule treats as most serious.
-- Those come from committed `config/` (`analytical_versions.json` for definitions/exclusions, `config/rubrics/` for anchors), generated from the canonical documents. `tests/test_rubric_drift.py` compares them and **skips when `docs/foundations/` is absent**, since that directory is gitignored. When it fails, the document wins: regenerate the config (D-21, D-22).
+- Those come from committed `config/` (`analytical_versions.json` for definitions/exclusions, `config/rubrics/` for anchors), generated from the canonical documents. `tests/test_rubric_drift.py` compares them and **skips when `docs/foundations/` is absent** (it is tracked today, but the test does not assume so). When it fails, the document wins: regenerate the config (D-21, D-22).
 - Never write a signal definition in Python. Definitions belong to the taxonomy, anchors to the rubric.
 - The parser refuses only on **structure** (D-19). Score 7, unknown signal, hallucinated turn number: all parse, then the validator rejects them with its own message.
 - Provider identity is stamped by the adapter, never taken from the reply (D-20).
@@ -193,6 +228,8 @@ The last two matter most. The pilot produces the human-adjudicated labels; witho
 - Seed collection reads abstracts only; PMC full text and PDFs are absent (D-40). Shared-DB migrations wait until the shared database is chosen.
 - S2 Filter (D-48): run `scripts/seeds.py screen` after any extraction; flagged seeds need `review-flags --seed ID --keep|--exclude --reason ...` with `APML_ACTOR_ID` set in `.env`. Changing `overlap_screen_v0.1.json` re-screens everything and flags need fresh decisions. Decisions go to whichever database `--database` selects until the shared one exists. **A blocked seed's text stays in local `seeds` and `extraction_cache`: S7 export must exclude blocked seeds and their cache entries.**
 - S3 Choose (D-49): `scripts/seeds.py choose` shows coverage and candidates (and records that you saw them); `choose --gold IDS --silver IDS --development IDS [--drop IDS] [--dry-run] [--accept-gaps]` makes a new selection. A split never changes. Coverage targets are provisional guesses (OD-027): expect to accept gaps until the corpus grows.
+- `APML_ACTOR_ID` is attribution, not authentication (plan §4.3): recorded, never verified, until increment 9 adds real sign-in.
+- Labelling (S7–S8) works on spreadsheet packet files with one validated import (D-50); spreadsheet support will need a library, the first outside the governance suite's reach, confirmed when S7 is built.
 - Alerts carry every version but not the `draft` status label; that belongs to the increment 9 view (§19 criterion 13).
 - `trajectory_updates` `CHECK` uses `array_length`, which lets an empty array through in raw SQL (IMPLEMENTATION_FOUNDATION §10.1). `alerts` uses `cardinality`.
 - No human reference labels exist, so **no rubric is validated** and no evaluation figure may be reported.

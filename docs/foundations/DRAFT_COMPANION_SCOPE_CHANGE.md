@@ -47,7 +47,7 @@ Unchanged on purpose: l. 293, 486, 1367 ("condition" metadata stays, with its ne
 
 - [`SEED_PIPELINE_PLAN.md` §7](SEED_PIPELINE_PLAN.md#7-known-gaps-and-risks): the gap "the gold set cannot satisfy 'every companion condition' until the client companion exists" no longer exists in that form. To be updated with the S5 text below.
 - [`SEED_PIPELINE_PLAN.md` §3.4](SEED_PIPELINE_PLAN.md#34-generate) and the S5 row of §6: S5 generates against the grounded and sycophantic reference companions and says "the client companion is not generated". Under D-46 it generates against the one companion, which needs a first version (pinned model, persona prompt with non-sycophancy instructions) before S5 can run, and the family-separation rule (D-30) then covers that companion. Positive and negative controls move into scenario design. To be updated before S5.
-- `CLAUDE.md`: mentions no client API, so needs no change for D-46. Add D-46/D-47 to its working notes once this draft is approved.
+- `CLAUDE.md`: D-46 and D-47 were added to its hard rules on 2026-09-25, with a note that the `architecture.md` and `PROJECT_SCOPE.md` passages above are stale until this draft is approved.
 
 ---
 

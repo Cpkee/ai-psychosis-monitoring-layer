@@ -629,6 +629,8 @@ Deciding what counts as reinforcing is a clinical and safety judgement; the poli
 
 **Provisional recommendation:** Part A — option 1 or 2 for the first companion version, Mem0 once richer recall is needed. Part B — option 2 once participant identity exists.
 
+**Implementation blueprint:** [`COMPANION_INTEGRATION_BLUEPRINT.md`](COMPANION_INTEGRATION_BLUEPRINT.md) §5 (Mem0 as companion memory, increment C3). No code until this decision is made.
+
 **Recommended owner:** Part A: project lead, with the clinical/safety adviser owning the gate policy. Part B: research lead.
 
 **Required by:** No milestone yet. Part A before the companion ships memory; Part B before cross-session alerting; both before any real user ([OD-030](#od-030)). **Status:** OPEN.
@@ -660,6 +662,8 @@ Deciding what counts as reinforcing is a clinical and safety judgement; the poli
 **Risks to weigh:** false positives on fiction, hypotheticals and ordinary spiritual discussion ([taxonomy §5](ANALYTICAL_TAXONOMY.md#5-context-categories)), where a scripted crisis reply damages trust; false negatives, which mean the system cannot be described as a safety guarantee; thresholds that cannot be set without human-adjudicated labels.
 
 **Evidence already available:** None of this is built. No human labels exist to set a threshold.
+
+**Implementation blueprint:** [`COMPANION_INTEGRATION_BLUEPRINT.md`](COMPANION_INTEGRATION_BLUEPRINT.md) §6 (Jev pre-screen and redirection, increment C4). No code until this decision is made.
 
 **Recommended owner:** Project lead with the clinical/safety adviser.
 
